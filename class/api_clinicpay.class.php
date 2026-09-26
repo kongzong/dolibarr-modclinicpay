@@ -485,6 +485,7 @@ class Clinicpay extends DolibarrApi
 			'id' => (int) $b->id,
 			'ref' => $b->ref,
 			'fk_patient' => (int) $b->fk_patient,
+			'fk_medrecord' => $b->fk_medrecord !== null ? (int) $b->fk_medrecord : null,
 			'card_no' => $summary ? $summary['card_no'] : null,
 			'patient_name' => $summary ? $summary['name'] : null,
 			'fk_invoice' => $b->fk_invoice !== null ? (int) $b->fk_invoice : null,

@@ -41,6 +41,8 @@ require_once DOL_DOCUMENT_ROOT.'/core/class/html.form.class.php';
 dol_include_once('/patient/lib/patient.lib.php');
 dol_include_once('/clinicpay/lib/clinicpay.lib.php');
 dol_include_once('/clinicpay/class/paybill.class.php');
+dol_include_once('/pharmacy/class/dispense.class.php');
+dol_include_once('/prescription/class/prescriptionsheet.class.php');
 
 /**
  * @var Conf $conf
@@ -49,7 +51,7 @@ dol_include_once('/clinicpay/class/paybill.class.php');
  * @var User $user
  */
 
-$langs->loadLangs(array("patient@patient", "clinicpay@clinicpay"));
+$langs->loadLangs(array("patient@patient", "clinicpay@clinicpay", "pharmacy@pharmacy"));
 
 if (!$user->hasRight('clinicpay', 'read')) {
 	accessforbidden();
@@ -59,6 +61,9 @@ $id = GETPOSTINT('id');
 $action = GETPOST('action', 'aZ09');
 $confirm = GETPOST('confirm', 'alpha');
 $fkPatientParam = GETPOSTINT('fk_patient');
+$fkMedrecordParam = GETPOSTINT('fk_medrecord');
+$fkDispenseParam = GETPOSTINT('fk_dispense');
+$fkPrescriptionParam = GETPOSTINT('fk_prescription');
 $token = GETPOST('token', 'alpha');
 
 $form = new Form($db);
@@ -93,6 +98,58 @@ if ($action == 'create') {
 	}
 	$products = clinicpay_product_options($db);
 
+	// Dispense linkage: pre-fill lines and anchor the visit (medrecord)
+	$dispensePrefill = array();
+	$fromDispenseRef = '';
+	$fromPrescRef = '';
+	if ($fkDispenseParam > 0) {
+		$disp = new Dispense($db);
+		if ($disp->fetch($fkDispenseParam) > 0 && (int) $disp->status === PHARMACY_STATUS_DISPENSED && (int) $disp->fk_patient === $fkPatientParam) {
+			$fromDispenseRef = $disp->ref;
+			$fkPresc = (int) $disp->fk_prescription;
+			if ($fkPresc > 0) {
+				$ps = new PrescriptionSheet($db);
+				if ($ps->fetch($fkPresc) > 0) {
+					$fromPrescRef = $ps->ref;
+					if ((int) $ps->fk_medrecord > 0) {
+						$fkMedrecordParam = (int) $ps->fk_medrecord;
+					}
+				}
+			}
+			foreach ($disp->lines as $dl) {
+				if (!empty($dl['fk_product']) && !empty($dl['qty'])) {
+					$dispensePrefill[] = array(
+						'fk_product' => (int) $dl['fk_product'],
+						'qty' => (float) $dl['qty'],
+						'fk_prescription' => $fkPresc,
+						'fk_dispense' => (int) $disp->id,
+					);
+				}
+			}
+		}
+	}
+
+	// Prescription linkage (direct entry, no dispense): pre-fill lines, anchor the visit
+	if ($fkPrescriptionParam > 0 && empty($dispensePrefill)) {
+		$ps = new PrescriptionSheet($db);
+		if ($ps->fetch($fkPrescriptionParam) > 0 && (int) $ps->fk_patient === $fkPatientParam) {
+			$fromPrescRef = $ps->ref;
+			if ((int) $ps->fk_medrecord > 0) {
+				$fkMedrecordParam = (int) $ps->fk_medrecord;
+			}
+			foreach ($ps->lines as $pl) {
+				if (!empty($pl['fk_product']) && !empty($pl['qty'])) {
+					$dispensePrefill[] = array(
+						'fk_product' => (int) $pl['fk_product'],
+						'qty' => (float) $pl['qty'],
+						'fk_prescription' => (int) $ps->id,
+						'fk_dispense' => 0,
+					);
+				}
+			}
+		}
+	}
+
 	llxHeader('', $langs->trans("ClinicPayBillNew"));
 	print patient_summary_banner($summary, array(array('label' => $langs->trans('ClinicPayBillTab'), 'url' => dol_buildpath('/clinicpay/patient_tab.php', 1).'?tab=bills&id='.((int) $fkPatientParam))), 'clinicpay');
 
@@ -100,26 +157,60 @@ if ($action == 'create') {
 	print '<input type="hidden" name="token" value="'.newToken().'">';
 	print '<input type="hidden" name="action" value="add">';
 	print '<input type="hidden" name="fk_patient" value="'.((int) $fkPatientParam).'">';
+	if ($fkMedrecordParam > 0) {
+		print '<input type="hidden" name="fk_medrecord" value="'.((int) $fkMedrecordParam).'">';
+	}
 
 	print '<table class="border centpercent tableforfieldcreate">';
 	print '<tr><td class="titlefieldcreate">'.$langs->trans("ClinicPayPatient").'</td><td>'.dol_escape_htmltag($summary['name']).'</td></tr>';
 	print '<tr><td class="titlefieldcreate">'.$langs->trans("ClinicPayBillNote").'</td><td><textarea class="flat" name="note" rows="2" cols="60"></textarea></td></tr>';
 	print '</table>';
 
+	if (!empty($dispensePrefill)) {
+		if ($fkDispenseParam > 0) {
+			print '<div class="info">'.$langs->trans("ClinicPayBillFromDispense").': '.dol_escape_htmltag($fromDispenseRef);
+			if ($fromPrescRef) {
+				print ' ('.$langs->trans("PharmacyPrescription").' '.dol_escape_htmltag($fromPrescRef).')';
+			}
+			print ' — <a href="'.dol_buildpath('/pharmacy/card.php', 1).'?id='.$fkDispenseParam.'">'.$langs->trans("ClinicPayViewDispense").'</a></div>';
+		} else {
+			print '<div class="info">'.$langs->trans("ClinicPayBillFromPrescription").': '.dol_escape_htmltag($fromPrescRef);
+			print ' — <a href="'.dol_buildpath('/prescription/card.php', 1).'?id='.$fkPrescriptionParam.'">'.$langs->trans("ClinicPayViewPrescription").'</a></div>';
+		}
+	}
+
+	$editorRows = array();
+	if (!empty($dispensePrefill)) {
+		$editorRows = $dispensePrefill;
+	} else {
+		for ($i = 0; $i < 8; $i++) {
+			$editorRows[] = array('fk_product' => 0, 'qty' => 0, 'fk_prescription' => 0, 'fk_dispense' => 0);
+		}
+	}
+
 	print '<div class="div-table-responsive-no-min"><table class="noborder centpercent">';
 	print '<tr class="liste_titre"><th>#</th><th>'.$langs->trans("ClinicPayBillProduct").'</th><th class="right" style="width:120px">'.$langs->trans("ClinicPayBillQty").'</th></tr>';
-	$lineCount = 8;
-	for ($i = 0; $i < $lineCount; $i++) {
+	foreach ($editorRows as $i => $row) {
+		$sel = (int) $row['fk_product'];
+		$qtyVal = !empty($row['qty']) ? price2num((float) $row['qty'], 'MS') : '';
 		print '<tr class="oddeven">';
 		print '<td>'.($i + 1).'</td>';
 		print '<td>';
 		print '<select class="flat minwidth300" name="fk_product['.$i.']">';
 		print '<option value="0">-</option>';
 		foreach ($products as $pid => $plabel) {
-			print '<option value="'.$pid.'">'.dol_escape_htmltag($plabel).'</option>';
+			$selAttr = ($pid == $sel) ? ' selected' : '';
+			print '<option value="'.$pid.'"'.$selAttr.'>'.dol_escape_htmltag($plabel).'</option>';
 		}
-		print '</select></td>';
-		print '<td class="right"><input class="flat maxwidth75 right" type="text" name="qty['.$i.']" value=""></td>';
+		print '</select>';
+		if (!empty($row['fk_prescription'])) {
+			print '<input type="hidden" name="fk_prescription['.$i.']" value="'.((int) $row['fk_prescription']).'">';
+		}
+		if (!empty($row['fk_dispense'])) {
+			print '<input type="hidden" name="fk_dispense['.$i.']" value="'.((int) $row['fk_dispense']).'">';
+		}
+		print '</td>';
+		print '<td class="right"><input class="flat maxwidth75 right" type="text" name="qty['.$i.']" value="'.$qtyVal.'"></td>';
 		print '</tr>';
 	}
 	print '</table></div>';
@@ -140,21 +231,30 @@ if ($action == 'add' && $token != '' && GETPOST('save', 'alpha') !== '') {
 	$lines = array();
 	$fkProducts = GETPOST('fk_product', 'array');
 	$qtys = GETPOST('qty', 'array');
+	$fkPresc = GETPOST('fk_prescription', 'array');
+	$fkDisp = GETPOST('fk_dispense', 'array');
 	foreach ($fkProducts as $i => $pid) {
 		$pid = (int) $pid;
 		$qty = isset($qtys[$i]) ? (float) $qtys[$i] : 0;
 		if ($pid > 0 && $qty > 0) {
-			$lines[] = array('fk_product' => $pid, 'qty' => $qty);
+			$line = array('fk_product' => $pid, 'qty' => $qty);
+			if (isset($fkPresc[$i]) && (int) $fkPresc[$i] > 0) {
+				$line['fk_prescription'] = (int) $fkPresc[$i];
+			}
+			if (isset($fkDisp[$i]) && (int) $fkDisp[$i] > 0) {
+				$line['fk_dispense'] = (int) $fkDisp[$i];
+			}
+			$lines[] = $line;
 		}
 	}
-	$data = array('fk_patient' => GETPOSTINT('fk_patient'), 'note' => (string) GETPOST('note', 'restricthtml'), 'lines' => $lines);
+	$data = array('fk_patient' => GETPOSTINT('fk_patient'), 'fk_medrecord' => GETPOSTINT('fk_medrecord'), 'note' => (string) GETPOST('note', 'restricthtml'), 'lines' => $lines);
 	$result = $dao->create($user, $data);
 	if ($result > 0) {
 		setEventMessages($langs->trans("RecordSaved").' '.$dao->ref, null, 'mesgs');
 		header('Location: '.$_SERVER["PHP_SELF"].'?id='.$dao->id);
 		exit;
 	}
-	clinicpay_redirect_error($dao->error, $_SERVER["PHP_SELF"].'?action=create&fk_patient='.((int) $data['fk_patient']).'&token='.newToken());
+	clinicpay_redirect_error($dao->error, $_SERVER["PHP_SELF"].'?action=create&fk_patient='.((int) $data['fk_patient']).($data['fk_medrecord'] > 0 ? '&fk_medrecord='.((int) $data['fk_medrecord']) : '').'&token='.newToken());
 }
 
 // ------------------------------------------------------------ confirm charge

@@ -57,6 +57,8 @@ class Paybill extends CommonObject
 	public $ref;
 	/** @var int Patient profile rowid */
 	public $fk_patient;
+	/** @var int|null Visit (medrecord) rowid; set on a consultation charge, null for Rx-only / retail / recharge */
+	public $fk_medrecord;
 	/** @var int|null Native invoice rowid (null until confirm) */
 	public $fk_invoice;
 	/** @var int 0 draft, 1 paid, 9 refunded */
@@ -111,7 +113,7 @@ class Paybill extends CommonObject
 	 */
 	public function fetch($id)
 	{
-		$sql = "SELECT b.rowid, b.entity, b.ref, b.fk_patient, b.fk_invoice, b.status, b.amount_total,";
+		$sql = "SELECT b.rowid, b.entity, b.ref, b.fk_patient, b.fk_medrecord, b.fk_invoice, b.status, b.amount_total,";
 		$sql .= " b.channel, b.channel_ref, b.fk_user_pay, b.date_pay, b.note, b.model_pdf, b.last_main_doc,";
 		$sql .= " b.fk_user_creat, b.date_creation";
 		$sql .= " FROM ".$this->db->prefix()."clinicpay_bill as b";
@@ -130,6 +132,7 @@ class Paybill extends CommonObject
 		$this->entity = (int) $obj->entity;
 		$this->ref = $obj->ref;
 		$this->fk_patient = (int) $obj->fk_patient;
+		$this->fk_medrecord = $obj->fk_medrecord !== null ? (int) $obj->fk_medrecord : null;
 		$this->fk_invoice = $obj->fk_invoice !== null ? (int) $obj->fk_invoice : null;
 		$this->status = (int) $obj->status;
 		$this->amount_total = (float) $obj->amount_total;
@@ -273,6 +276,7 @@ class Paybill extends CommonObject
 			$this->error = 'ClinicPayErrPatient';
 			return -2;
 		}
+		$fkMedrecord = isset($data['fk_medrecord']) ? (int) $data['fk_medrecord'] : 0;
 		$inputLines = isset($data['lines']) && is_array($data['lines']) ? $data['lines'] : array();
 		if (count($inputLines) < 1) {
 			$this->error = 'ClinicPayErrNoLines';
@@ -301,8 +305,8 @@ class Paybill extends CommonObject
 			$ref = $numbering->nextReference(PaybillNumbering::prefixFor());
 
 			$sql = "INSERT INTO ".$this->db->prefix()."clinicpay_bill";
-			$sql .= " (entity, ref, fk_patient, status, amount_total, note, fk_user_creat, date_creation)";
-			$sql .= " VALUES (".((int) $conf->entity).", '".$this->db->escape($ref)."', ".$fkPatient.", ".CLINICPAY_BILL_DRAFT;
+			$sql .= " (entity, ref, fk_patient, fk_medrecord, status, amount_total, note, fk_user_creat, date_creation)";
+			$sql .= " VALUES (".((int) $conf->entity).", '".$this->db->escape($ref)."', ".$fkPatient.", ".($fkMedrecord > 0 ? (int) $fkMedrecord : 'NULL').", ".CLINICPAY_BILL_DRAFT;
 			$sql .= ", ".price2num($total, 'MT').", '".$this->db->escape((string) (isset($data['note']) ? $data['note'] : ''))."', ".((int) $user->id);
 			$sql .= ", '".$this->db->idate(dol_now())."')";
 			$this->query($sql);

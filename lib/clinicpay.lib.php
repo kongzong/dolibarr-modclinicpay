@@ -152,10 +152,73 @@ function clinicpay_channel_label($channel)
  */
 function clinicpay_bill_list_by_patient($db, $fkPatient, $limit = 50)
 {
+	global $conf;
+
+	$out = array();
+	$sql = "SELECT b.rowid, b.ref, b.status, b.amount_total, b.channel, b.date_pay, b.date_creation, b.fk_medrecord";
+	if (isModEnabled('medrecord')) {
+		$sql .= ", m.ref as medrecord_ref";
+	}
+	if (isModEnabled('prescription')) {
+		// Linked prescriptions for the patient tab column (bill_line rows may
+		// carry fk_prescription from the dispense/prescription charge flows).
+		// "id:ref" pairs, exploded client side.
+		$sql .= ", (SELECT GROUP_CONCAT(DISTINCT CONCAT(bl.fk_prescription, ':', p.ref)) FROM ".$db->prefix()."clinicpay_bill_line as bl";
+		$sql .= " JOIN ".$db->prefix()."prescription as p ON p.rowid = bl.fk_prescription";
+		$sql .= " WHERE bl.fk_bill = b.rowid) as presc_pairs";
+	}
+	$sql .= " FROM ".$db->prefix()."clinicpay_bill as b";
+	if (isModEnabled('medrecord')) {
+		$sql .= " LEFT JOIN ".$db->prefix()."medrecord as m ON m.rowid = b.fk_medrecord";
+	}
+	$sql .= " WHERE b.fk_patient = ".((int) $fkPatient);
+	$sql .= $db->order('b.rowid', 'DESC');
+	$sql .= $db->plimit((int) $limit);
+	$resql = $db->query($sql);
+	if ($resql) {
+		while ($o = $db->fetch_object($resql)) {
+			$out[] = $o;
+		}
+		$db->free($resql);
+	}
+	return $out;
+}
+
+/**
+ * Sum of charge bills tied to one visit (medrecord). Drives the
+ * "本次合计" column on the patient visit list (design §5.2).
+ *
+ * @param	DoliDB	$db			Database handler
+ * @param	int		$fkMedrecord	Visit rowid
+ * @return	float				Sum of amount_total (0 if none)
+ */
+function clinicpay_bill_total_by_medrecord($db, $fkMedrecord)
+{
+	$sql = "SELECT COALESCE(SUM(amount_total), 0) AS n FROM ".$db->prefix()."clinicpay_bill";
+	$sql .= " WHERE fk_medrecord = ".((int) $fkMedrecord);
+	$resql = $db->query($sql);
+	if ($resql) {
+		$o = $db->fetch_object($resql);
+		$db->free($resql);
+		return $o ? (float) $o->n : 0.0;
+	}
+	return 0.0;
+}
+
+/**
+ * Charge bills tied to one visit (medrecord), newest first.
+ *
+ * @param	DoliDB	$db			Database handler
+ * @param	int		$fkMedrecord	Visit rowid
+ * @param	int		$limit		Max rows
+ * @return	array<int,object>	Rows
+ */
+function clinicpay_bill_list_by_medrecord($db, $fkMedrecord, $limit = 50)
+{
 	$out = array();
 	$sql = "SELECT b.rowid, b.ref, b.status, b.amount_total, b.channel, b.date_pay, b.date_creation";
 	$sql .= " FROM ".$db->prefix()."clinicpay_bill as b";
-	$sql .= " WHERE b.fk_patient = ".((int) $fkPatient);
+	$sql .= " WHERE b.fk_medrecord = ".((int) $fkMedrecord);
 	$sql .= $db->order('b.rowid', 'DESC');
 	$sql .= $db->plimit((int) $limit);
 	$resql = $db->query($sql);

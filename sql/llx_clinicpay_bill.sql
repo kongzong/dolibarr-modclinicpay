@@ -8,6 +8,7 @@ CREATE TABLE llx_clinicpay_bill(
 	entity				integer DEFAULT 1 NOT NULL,
 	ref					varchar(32) NOT NULL,
 	fk_patient			integer NOT NULL,
+	fk_medrecord		integer DEFAULT NULL,
 	fk_invoice			integer DEFAULT NULL,
 	status				smallint DEFAULT 0 NOT NULL,
 	amount_total		decimal(24,8) DEFAULT 0 NOT NULL,

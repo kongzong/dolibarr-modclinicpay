@@ -47,7 +47,7 @@ dol_include_once('/clinicpay/class/servicecard.class.php');
  * @var User $user
  */
 
-$langs->loadLangs(array("patient@patient", "clinicpay@clinicpay"));
+$langs->loadLangs(array("patient@patient", "clinicpay@clinicpay", "medrecord@medrecord"));
 
 $tab = GETPOST('tab', 'aZ09');
 $id = GETPOSTINT('id');
@@ -65,7 +65,15 @@ llxHeader('', $langs->trans("ClinicPayTab"));
 $head = patient_prepare_head($patient);
 print dol_get_fiche_head($head, ($tab === 'cards' ? 'clinicpay_cards' : 'clinicpay_bills'), $langs->trans("PatientTab"), -1, 'user');
 
-print patient_summary_banner(patient_get_summary($db, $patient->id), array(), 'clinicpay');
+// Patient header in the card/allergies fiche style (no summary banner here;
+// the summary mode with quick buttons is for sub-data detail pages, design §5.1)
+$linkback = '<a href="'.dol_buildpath('/patient/list.php', 1).'?restore_lastsearch_values=1">'.$langs->trans("BackToList").'</a>';
+print '<div class="arearef heightref valignmiddle centpercent">';
+print '<div class="inline-block floatleft refid refidpadding">'.img_picto('', 'user', 'class="pictofixedwidth"').'<strong>'.dol_escape_htmltag($patient->card_no).'</strong>';
+print ($patient->thirdparty ? ' - '.dol_escape_htmltag($patient->thirdparty->name) : '').'</div>';
+print '<div class="inline-block floatright">'.$linkback.'</div>';
+print '<div class="clearboth"></div></div>';
+print '<div class="underbanner clearboth"></div>';
 
 if ($tab === 'bills') {
 	if ($user->hasRight('clinicpay', 'write')) {
@@ -78,15 +86,38 @@ if ($tab === 'bills') {
 	$rows = clinicpay_bill_list_by_patient($db, $patient->id, 50);
 	print '<div class="div-table-responsive">';
 	print '<table class="tagtable liste centpercent">'."\n";
-	print '<tr class="liste_titre"><th>'.$langs->trans("ClinicPayRef").'</th><th class="right">'.$langs->trans("ClinicPayBillAmount").'</th><th class="center">'.$langs->trans("ClinicPayBillDate").'</th><th class="center">'.$langs->trans("Status").'</th></tr>';
+	print '<tr class="liste_titre"><th>'.$langs->trans("ClinicPayRef").'</th><th class="right">'.$langs->trans("ClinicPayBillAmount").'</th><th class="center">'.$langs->trans("ClinicPayBillDate").'</th><th>'.$langs->trans("MedRecordBelonging").'</th><th>'.$langs->trans("ClinicPayPrescriptionLink").'</th><th class="center">'.$langs->trans("Status").'</th></tr>';
 	if (empty($rows)) {
-		print '<tr><td colspan="4"><span class="opacitymedium">'.$langs->trans("ClinicPayNoBill").'</span></td></tr>';
+		print '<tr><td colspan="6"><span class="opacitymedium">'.$langs->trans("ClinicPayNoBill").'</span></td></tr>';
 	}
 	foreach ($rows as $r) {
 		print '<tr class="oddeven">';
 		print '<td><a href="'.dol_buildpath('/clinicpay/bill.php', 1).'?id='.(int) $r->rowid.'">'.dol_escape_htmltag($r->ref).'</a></td>';
 		print '<td class="right">'.price($r->amount_total).'</td>';
 		print '<td class="center">'.dol_print_date($db->jdate($r->date_creation), 'dayhour').'</td>';
+		$medHtml = '<span class="opacitymedium">—</span>';
+		if (!empty($r->fk_medrecord)) {
+			$medLabel = ($r->medrecord_ref !== null && $r->medrecord_ref !== '') ? $r->medrecord_ref : '#'.(int) $r->fk_medrecord;
+			$medHtml = '<a href="'.dol_buildpath('/medrecord/card.php', 1).'?id='.((int) $r->fk_medrecord).'">'.dol_escape_htmltag($medLabel).'</a>';
+		}
+		print '<td>'.$medHtml.'</td>';
+		$prescHtml = '<span class="opacitymedium">—</span>';
+		if (!empty($r->presc_pairs)) {
+			$prescLinks = array();
+			foreach (explode(',', $r->presc_pairs) as $pair) {
+				$sep = strpos($pair, ':');
+				if ($sep === false) {
+					continue;
+				}
+				$prescId = (int) substr($pair, 0, $sep);
+				$prescRef = substr($pair, $sep + 1);
+				$prescLinks[] = '<a href="'.dol_buildpath('/prescription/card.php', 1).'?id='.$prescId.'">'.dol_escape_htmltag($prescRef).'</a>';
+			}
+			if ($prescLinks) {
+				$prescHtml = implode(', ', $prescLinks);
+			}
+		}
+		print '<td>'.$prescHtml.'</td>';
 		print '<td class="center">'.clinicpay_bill_status_badge($r->status).'</td>';
 		print '</tr>';
 	}
