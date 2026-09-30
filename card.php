@@ -183,18 +183,10 @@ if ($action !== 'create') {
 
 	// lazy pending refund info (only for refundable cards)
 	$pendingRefund = false;
-	$sellBillId = 0;
 	if (in_array((int) $object->status, array(CLINICPAY_CARD_VALID, CLINICPAY_CARD_USED), true)) {
 		$pendingRefund = $object->hasPendingRefund();
 	}
 
-	// formconfirms
-	if ($action === 'refund' && !empty($user->rights->clinicpay->write) && $token !== '') {
-		print $form->formconfirm($_SERVER["PHP_SELF"].'?id='.$object->id.'&token='.newToken(), $langs->trans("ClinicPayCardRefundStart"), $langs->trans("ClinicPayCardRefundReasonAsk"), 'refund_create', array(array('type' => 'textarea', 'name' => 'refund_reason', 'label' => $langs->trans("ClinicPayCardRefundReason"), 'value' => '', 'moreattr' => 'rows="3"')), 0, 1, 280, 600);
-	}
-	if ($action === 'refund_exec' && !empty($user->rights->clinicpay->validate) && $token !== '') {
-		print $form->formconfirm($_SERVER["PHP_SELF"].'?id='.$object->id.'&token='.newToken(), $langs->trans("ClinicPayCardRefundExecute"), $langs->trans("ClinicPayRefundConfirmAsk"), 'refund_execute', '', 0, 1);
-	}
 	if ($action === 'refund_create' && !empty($user->rights->clinicpay->write) && $token !== '' && GETPOST('confirm', 'aZ09') === 'yes') {
 		$rc = $object->createRefund($user, GETPOST('refund_reason', 'alphanohtml'));
 		if ($rc > 0) {
@@ -219,6 +211,21 @@ if ($action !== 'create') {
 	}
 
 	llxHeader('', $langs->trans("ClinicPayCardTab"));
+
+	// formconfirms (after llxHeader: formconfirm prints HTML, printing it
+	// before the header used to trigger "headers already sent" warnings)
+	if ($action === 'refund' && !empty($user->rights->clinicpay->write) && $token !== '') {
+		$restLabel = '';
+		if ($object->card_type === CLINICPAY_CARD_COUNT) {
+			$restLabel = $langs->trans('ClinicPayCardRestCount', max(0, (int) $object->total_count - (int) $object->used_count));
+		} else {
+			$restLabel = $langs->trans('ClinicPayCardRestValue', price2num(max(0, (float) $object->total_value - (float) $object->used_value), 'MT'));
+		}
+		print $form->formconfirm($_SERVER["PHP_SELF"].'?id='.$object->id.'&token='.newToken(), $langs->trans("ClinicPayCardRefundStart"), $langs->trans("ClinicPayCardRefundReasonAsk", $restLabel), 'refund_create', array(array('type' => 'textarea', 'name' => 'refund_reason', 'label' => $langs->trans("ClinicPayCardRefundReason"), 'value' => '', 'moreattr' => 'rows="3"')), 0, 1, 280, 600);
+	}
+	if ($action === 'refund_exec' && !empty($user->rights->clinicpay->validate) && $token !== '') {
+		print $form->formconfirm($_SERVER["PHP_SELF"].'?id='.$object->id.'&token='.newToken(), $langs->trans("ClinicPayCardRefundExecute"), $langs->trans("ClinicPayRefundConfirmAsk"), 'refund_execute', '', 0, 1);
+	}
 
 	print patient_summary_banner(patient_get_summary($db, $object->fk_patient), array(), 'clinicpay');
 

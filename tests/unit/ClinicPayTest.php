@@ -226,7 +226,7 @@ class ClinicPayTest extends \PHPUnit\Framework\TestCase
 		$src = file_get_contents(__DIR__.'/../../class/servicecard.class.php');
 		foreach (array('function sell(', 'function charge(', 'function consume(', 'function createRefund(',
 			'function executeRefund(', 'function fetchLogs(', 'function searchLogs(', 'function isExpired(',
-			'function insertLog(', 'function sellBillId(') as $m) {
+			'function insertLog(', 'function relatedBillIds(') as $m) {
 			$this->assertStringContainsString($m, $src, 'ServiceCard method '.$m);
 		}
 		// red lines: atomic conditional UPDATE gate + append-only log + bill-driven sell
@@ -235,7 +235,7 @@ class ClinicPayTest extends \PHPUnit\Framework\TestCase
 		$this->assertStringContainsString('CLINICPAY_LOG_CREATE', $src, 'CREATE log on sell');
 		$this->assertStringContainsString('CLINICPAY_LOG_EXPIRE', $src, 'lazy EXPIRE log');
 		$this->assertStringContainsString('createRefundDraft(', $src, 'refund goes through the bill two-person flow');
-		$this->assertStringContainsString('ClinicPayErrCardMultiBill', $src, 'multi-charge refund guard');
+		$this->assertStringContainsString('ClinicPayErrCardNothingToRefund', $src, 'zero-balance refund guard');
 	}
 
 	/** Phase-3 language keys cover the card flow */

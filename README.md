@@ -50,7 +50,7 @@ cd tests/integration && PHP=/d/dolibarr/bin/php/php7.4.26/php.exe bash run_phase
 - 过期按 `date_end + CLINICPAY_CARD_GRACE_DAYS` 判定，读取时只展示；首次核销尝试懒写 `EXPIRE` 流水并置状态 2
 - 退卡 = 售卖票红冲（复用退费双人两步），成功后卡清零（状态 3）+ `REFUND` 流水；V0.1 仅支持未充值过的卡（多充值卡逐票退费）
 - 卡号 `CK-YYYYMM-NNNN`（跨月流水），行锁方案
-- 已知边界：退卡只在"单售卖票、无充值"的卡上开放（`ClinicPayErrCardMultiBill` 保护）
+- 退卡（V0.2）：按剩余额度红冲售卖/充值发票（比例分摊），多充值卡支持；剩余为 0 拒绝（`ClinicPayErrCardNothingToRefund` 保护）
 
 ## 收费单 PDF 与 REST API（阶段 4 已完成）
 

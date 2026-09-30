@@ -480,14 +480,16 @@ class ServiceCard extends CommonObject
 	}
 
 	/**
-	 * Card refund, step 1 (write permission, checked by caller): create the
-	 * refund draft of the original sell bill via the two-person bill refund
-	 * flow. V0.1 accepts single-bill cards (one CREATE, no CHARGE logs);
-	 * multi-charge cards are refused (refund bill by bill instead).
+	 * Card refund, step 1 (write permission, checked by caller). V0.2:
+	 * multi-charge cards are accepted. The credit amount is the remaining
+	 * balance, spread proportionally over the sell/charge invoices
+	 * (rest / total x invoice amount, rounding residual on the last one);
+	 * a zero balance is refused. Each affected bill gets its own credit
+	 * note draft through the two-person bill refund flow.
 	 *
 	 * @param	User	$user	Acting user (write permission)
 	 * @param	string	$reason	Refund reason
-	 * @return	int				1 ok (sets ->bill_id), -2 refused, -1 error
+	 * @return	int				1 ok, -2 refused, -1 error
 	 */
 	public function createRefund(User $user, $reason)
 	{
@@ -505,35 +507,101 @@ class ServiceCard extends CommonObject
 			$this->error = 'ClinicPayErrReason';
 			return -2;
 		}
-		$billId = $this->sellBillId();
-		if ($billId <= 0) {
-			$this->error = 'ClinicPayErrNoBill';
+		// Remaining balance / total intake; V0.1 trick of charging a bill
+		// per top-up means total_* already holds the full intake.
+		if ($this->card_type === CLINICPAY_CARD_COUNT) {
+			$rest = max(0, (int) $this->total_count - (int) $this->used_count);
+			$intake = (int) $this->total_count;
+		} else {
+			$rest = max(0, price2num((float) $this->total_value - (float) $this->used_value, 'MT'));
+			$intake = (float) $this->total_value;
+		}
+		if ($rest <= 0 || $intake <= 0) {
+			$this->error = 'ClinicPayErrCardNothingToRefund';
 			return -2;
 		}
-		if ($this->countChargeLogs() > 0) {
-			$this->error = 'ClinicPayErrCardMultiBill';
+		$billIds = $this->relatedBillIds();
+		if (empty($billIds)) {
+			$this->error = 'ClinicPayErrNoBill';
 			return -2;
 		}
 
-		$bill = new Paybill($this->db);
-		if ($bill->fetch($billId) <= 0) {
-			$this->error = 'ClinicPayErrNoBill';
+		// Proportional spread, cent-rounded, residual on the last bill.
+		$rate = $rest / $intake;
+		$amounts = array();
+		$sumBase = 0.0;
+		foreach ($billIds as $bid) {
+			$b = new Paybill($this->db);
+			if ($b->fetch($bid) <= 0) {
+				$this->error = 'ClinicPayErrNoBill';
+				return -2;
+			}
+			$sumBase += price2num((float) $b->amount_total, 'MT');
+			$amounts[$bid] = price2num((float) $b->amount_total, 'MT') * $rate;
+		}
+		$sum = 0.0;
+		foreach ($amounts as $bid => $a) {
+			$amounts[$bid] = price2num($a, 'MT');
+			$sum += $amounts[$bid];
+		}
+		$target = price2num($sumBase * $rate, 'MT');
+		$lastBid = null;
+		foreach ($billIds as $bid) {
+			if ($amounts[$bid] > 0) {
+				$lastBid = $bid;
+			}
+		}
+		if ($lastBid !== null) {
+			$amounts[$lastBid] = price2num($amounts[$lastBid] + ($target - $sum), 'MT');
+			if ($amounts[$lastBid] < 0) {
+				$amounts[$lastBid] = 0;
+			}
+		}
+
+		$this->db->begin();
+		try {
+			$drafts = 0;
+			foreach ($billIds as $bid) {
+				if ($amounts[$bid] < 0.01) {
+					continue;
+				}
+				$bill = new Paybill($this->db);
+				if ($bill->fetch($bid) <= 0) {
+					$this->error = 'ClinicPayErrNoBill';
+					throw new ClinicPayRefusedException($this->error);
+				}
+				$rc = $bill->createRefundDraft($user, 'Refund card '.$this->ref.': '.$reason, $amounts[$bid]);
+				if ($rc < 0) {
+					$this->error = $bill->error !== '' ? $bill->error : 'ClinicPayErrRefundDraft';
+					throw new ClinicPayRefusedException($this->error);
+				}
+				$drafts++;
+			}
+			if ($drafts === 0) {
+				$this->error = 'ClinicPayErrCardNothingToRefund';
+				throw new ClinicPayRefusedException($this->error);
+			}
+			$this->bill_id = (int) $billIds[0];
+			patient_audit($this->db, $this->fk_patient, 'CLINICPAY_CARD_REFUND', $user, array('op' => 'draft', 'ref' => $this->ref, 'card' => $this->id, 'bills' => $billIds, 'amounts' => $amounts, 'rest' => $rest));
+			$this->db->commit();
+		} catch (ClinicPayRefusedException $e) {
+			$this->rollbackAll();
 			return -2;
+		} catch (Throwable $e) {
+			$this->rollbackAll();
+			$this->error = $e->getMessage();
+			dol_syslog('ServiceCard::createRefund failed: '.$e->getMessage(), LOG_ERR);
+			return -1;
 		}
-		$rc = $bill->createRefundDraft($user, 'Refund card '.$this->ref.': '.$reason);
-		if ($rc < 0) {
-			$this->error = $bill->error !== '' ? $bill->error : 'ClinicPayErrRefundDraft';
-			return $rc === -2 ? -2 : -1;
-		}
-		$this->bill_id = (int) $bill->id;
 		return 1;
 	}
 
 	/**
 	 * Card refund, step 2 (validate permission, checked by caller). The
-	 * two-person red line is enforced inside Paybill::executeRefund(). On
-	 * success the card is zeroed (status 3) and a REFUND log is appended,
-	 * in the same transaction as the bill refund.
+	 * two-person red line is enforced inside Paybill::executeRefund() for
+	 * every pending credit note. On success the card is zeroed (status 3)
+	 * and a REFUND log is appended, in the same transaction as the bill
+	 * refunds.
 	 *
 	 * @param	User	$user	Acting user (validate permission)
 	 * @return	int				1 ok, -2 refused, -1 error
@@ -549,23 +617,34 @@ class ServiceCard extends CommonObject
 			$this->error = 'ClinicPayErrCardRefundState';
 			return -2;
 		}
-		$billId = $this->sellBillId();
-		if ($billId <= 0) {
-			$this->error = 'ClinicPayErrNoBill';
-			return -2;
-		}
-
-		$bill = new Paybill($this->db);
-		if ($bill->fetch($billId) <= 0) {
+		$billIds = $this->relatedBillIds();
+		if (empty($billIds)) {
 			$this->error = 'ClinicPayErrNoBill';
 			return -2;
 		}
 
 		$this->db->begin();
 		try {
-			$rc = $bill->executeRefund($user);
-			if ($rc < 0) {
-				$this->error = $bill->error !== '' ? $bill->error : 'ClinicPayErrRefund';
+			$executed = 0;
+			$refundedTotal = 0.0;
+			foreach ($billIds as $bid) {
+				$bill = new Paybill($this->db);
+				if ($bill->fetch($bid) <= 0) {
+					$this->error = 'ClinicPayErrNoBill';
+					throw new ClinicPayRefusedException($this->error);
+				}
+				if ($bill->findRefundDraft() <= 0) {
+					continue;
+				}
+				$rc = $bill->executeRefund($user);
+				if ($rc < 0) {
+					$this->error = $bill->error !== '' ? $bill->error : 'ClinicPayErrRefund';
+					throw new ClinicPayRefusedException($this->error);
+				}
+				$executed++;
+			}
+			if ($executed === 0) {
+				$this->error = 'ClinicPayErrNoRefundDraft';
 				throw new ClinicPayRefusedException($this->error);
 			}
 
@@ -577,8 +656,8 @@ class ServiceCard extends CommonObject
 			}
 			$restCount = max(0, (int) $this->total_count - (int) $this->used_count);
 			$restValue = max(0, (float) $this->total_value - (float) $this->used_value);
-			$this->insertLog(CLINICPAY_LOG_REFUND, -1 * $restCount, -1 * $restValue, $bill->id, $user, 'card refunded');
-			patient_audit($this->db, $this->fk_patient, 'CLINICPAY_CARD_REFUND', $user, array('op' => 'refund', 'ref' => $this->ref, 'card' => $this->id, 'bill' => $bill->id, 'rest_count' => $restCount, 'rest_value' => $restValue));
+			$this->insertLog(CLINICPAY_LOG_REFUND, -1 * $restCount, -1 * $restValue, $billIds[0], $user, 'card refunded ('.$executed.' credit note(s))');
+			patient_audit($this->db, $this->fk_patient, 'CLINICPAY_CARD_REFUND', $user, array('op' => 'refund', 'ref' => $this->ref, 'card' => $this->id, 'bills' => $billIds, 'executed' => $executed, 'rest_count' => $restCount, 'rest_value' => $restValue));
 			$this->db->commit();
 		} catch (ClinicPayRefusedException $e) {
 			$this->rollbackAll();
@@ -642,22 +721,23 @@ class ServiceCard extends CommonObject
 	}
 
 	/**
-	 * Whether a pending bill refund draft exists for the sell bill
-	 * (card page shows the "execute refund" entry).
+	 * Whether a pending bill refund draft exists on any sell/charge bill of
+	 * this card (card page shows the "execute refund" entry).
 	 *
 	 * @return	bool
 	 */
 	public function hasPendingRefund()
 	{
-		$billId = $this->sellBillId();
-		if ($billId <= 0) {
-			return false;
+		foreach ($this->relatedBillIds() as $bid) {
+			$bill = new Paybill($this->db);
+			if ($bill->fetch($bid) <= 0) {
+				continue;
+			}
+			if ($bill->findRefundDraft() > 0) {
+				return true;
+			}
 		}
-		$bill = new Paybill($this->db);
-		if ($bill->fetch($billId) <= 0) {
-			return false;
-		}
-		return $bill->findRefundDraft() > 0;
+		return false;
 	}
 
 	/**
@@ -710,38 +790,28 @@ class ServiceCard extends CommonObject
 	}
 
 	/**
-	 * The bill that created this card (card_log CREATE, V0.1: exactly one).
+	 * Bill rowids backing this card: the sell bill plus every top-up bill
+	 * (CREATE + CHARGE logs), oldest first, deduplicated.
 	 *
-	 * @return	int	0 if none
+	 * @return	array<int,int>
 	 */
-	private function sellBillId()
+	public function relatedBillIds()
 	{
-		$sql = "SELECT fk_bill FROM ".$this->db->prefix()."clinicpay_card_log";
-		$sql .= " WHERE fk_card = ".((int) $this->id)." AND op = '".CLINICPAY_LOG_CREATE."'";
-		$sql .= $this->db->order('rowid', 'ASC');
+		$sql = "SELECT DISTINCT l.fk_bill";
+		$sql .= " FROM ".$this->db->prefix()."clinicpay_card_log as l";
+		$sql .= " WHERE l.fk_card = ".((int) $this->id)." AND l.fk_bill IS NOT NULL";
+		$sql .= " AND l.op IN ('".CLINICPAY_LOG_CREATE."', '".CLINICPAY_LOG_CHARGE."')";
+		$sql .= $this->db->order('l.fk_bill', 'ASC');
 		$resql = $this->db->query($sql);
 		if (!$resql) {
-			return 0;
+			return array();
 		}
-		$obj = $this->db->fetch_object($resql);
-		$this->db->free($resql);
-		return $obj && $obj->fk_bill !== null ? (int) $obj->fk_bill : 0;
-	}
-
-	/**
-	 * @return	int	Number of CHARGE logs
-	 */
-	private function countChargeLogs()
-	{
-		$sql = "SELECT COUNT(*) AS n FROM ".$this->db->prefix()."clinicpay_card_log";
-		$sql .= " WHERE fk_card = ".((int) $this->id)." AND op = '".CLINICPAY_LOG_CHARGE."'";
-		$resql = $this->db->query($sql);
-		if (!$resql) {
-			return 0;
+		$ids = array();
+		while ($o = $this->db->fetch_object($resql)) {
+			$ids[] = (int) $o->fk_bill;
 		}
-		$n = (int) $this->db->fetch_object($resql)->n;
 		$this->db->free($resql);
-		return $n;
+		return $ids;
 	}
 
 	/**

@@ -553,11 +553,17 @@ class Paybill extends CommonObject
 	 * note draft (TYPE_CREDIT_NOTE, fk_facture_source = original invoice)
 	 * mirroring the bill lines negated. Not executed yet.
 	 *
-	 * @param	User	$user	Acting user (write permission)
-	 * @param	string	$reason	Refund reason
-	 * @return	int				1 ok (sets ->refund_draft_id), -2 refused, -1 error
+	 * V0.2: $amountTtc > 0 creates a PARTIAL credit note (one flat line of
+	 * that TTC amount, VAT rate from the first bill line) - used by the
+	 * card refund to credit only the remaining balance. 0 keeps the V0.1
+	 * full-bill behaviour.
+	 *
+	 * @param	User	$user		Acting user (write permission)
+	 * @param	string	$reason		Refund reason
+	 * @param	float	$amountTtc	>0 = partial credit amount (TTC), 0 = full bill
+	 * @return	int					1 ok (sets ->refund_draft_id), -2 refused, -1 error
 	 */
-	public function createRefundDraft(User $user, $reason)
+	public function createRefundDraft(User $user, $reason, $amountTtc = 0.0)
 	{
 		$this->error = '';
 		$reason = trim((string) $reason);
@@ -591,7 +597,18 @@ class Paybill extends CommonObject
 				throw new ClinicPayRefusedException($this->error);
 			}
 			$credited = $this->creditedTotal((int) $this->fk_invoice);
-			if ($credited + 0.001 >= (float) $orig->total_ttc) {
+			$partial = ($amountTtc > 0);
+			$amountTtc = $partial ? price2num((float) $amountTtc, 'MT') : 0.0;
+			if ($partial && $credited + $amountTtc > (float) $orig->total_ttc + 0.005) {
+				// cannot credit more than the not-yet-credited remainder
+				$this->error = 'ClinicPayErrAlreadyRefunded';
+				throw new ClinicPayRefusedException($this->error);
+			}
+			if ($partial && $amountTtc < 0.01) {
+				$this->error = 'ClinicPayErrAlreadyRefunded';
+				throw new ClinicPayRefusedException($this->error);
+			}
+			if (!$partial && $credited + 0.001 >= (float) $orig->total_ttc) {
 				$this->error = 'ClinicPayErrAlreadyRefunded';
 				throw new ClinicPayRefusedException($this->error);
 			}
@@ -606,15 +623,17 @@ class Paybill extends CommonObject
 			$credit->note_private = 'Refund draft of bill '.$this->ref.': '.$reason;
 			$credit->note_public = 'ClinicPay refund of bill '.$this->ref;
 			$credit->lines = array();
-			foreach ($this->lines as $l) {
+			if ($partial) {
+				$vatRate = (float) (isset($this->lines[0]) ? $this->lines[0]['vat_rate'] : 0);
+				$ht = price2num($amountTtc / (1 + $vatRate / 100), 'MU');
 				$credit->lines[] = array(
-					'desc' => $l['label'],
-					'subprice' => -1 * price2num($l['price_unit'], 'MU'),
-					'qty' => price2num($l['qty'], 'MS'),
-					'tva_tx' => (float) $l['vat_rate'],
+					'desc' => 'Refund of bill '.$this->ref.' (partial amount '.$amountTtc.')',
+					'subprice' => -1 * $ht,
+					'qty' => 1,
+					'tva_tx' => $vatRate,
 					'localtax1_tx' => 0,
 					'localtax2_tx' => 0,
-					'fk_product' => $l['fk_product'] !== null ? (int) $l['fk_product'] : 0,
+					'fk_product' => 0,
 					'remise_percent' => 0,
 					'price_base_type' => 'HT',
 					'info_bits' => 0,
@@ -622,7 +641,7 @@ class Paybill extends CommonObject
 					'fk_code_ventilation' => 0,
 					'fk_parent_line' => 0,
 					'special_code' => 0,
-					'product_type' => $l['product_type'],
+					'product_type' => 1,
 					'fk_unit' => null,
 					'date_start' => null,
 					'date_end' => null,
@@ -633,13 +652,42 @@ class Paybill extends CommonObject
 					'origin_id' => null,
 					'origin_type' => null,
 				);
+			} else {
+				foreach ($this->lines as $l) {
+					$credit->lines[] = array(
+						'desc' => $l['label'],
+						'subprice' => -1 * price2num($l['price_unit'], 'MU'),
+						'qty' => price2num($l['qty'], 'MS'),
+						'tva_tx' => (float) $l['vat_rate'],
+						'localtax1_tx' => 0,
+						'localtax2_tx' => 0,
+						'fk_product' => $l['fk_product'] !== null ? (int) $l['fk_product'] : 0,
+						'remise_percent' => 0,
+						'price_base_type' => 'HT',
+						'info_bits' => 0,
+						'fk_remise_except' => 0,
+						'fk_code_ventilation' => 0,
+						'fk_parent_line' => 0,
+						'special_code' => 0,
+						'product_type' => $l['product_type'],
+						'fk_unit' => null,
+						'date_start' => null,
+						'date_end' => null,
+						'ventilation' => 0,
+						'subprice_remise' => 0,
+						'vat_src_code' => '',
+						'ref_ext' => '',
+						'origin_id' => null,
+						'origin_type' => null,
+					);
+				}
 			}
 			$creditId = $credit->create($user);
 			if ($creditId <= 0) {
 				throw new RuntimeException('credit note create failed: '.($credit->error !== '' ? $credit->error : $this->db->lasterror()));
 			}
 			$this->refund_draft_id = (int) $creditId;
-			patient_audit($this->db, $this->fk_patient, 'CLINICPAY_REFUND', $user, array('op' => 'draft', 'ref' => $this->ref, 'bill' => $this->id, 'credit_note' => (int) $creditId, 'reason' => $reason));
+			patient_audit($this->db, $this->fk_patient, 'CLINICPAY_REFUND', $user, array('op' => 'draft', 'ref' => $this->ref, 'bill' => $this->id, 'credit_note' => (int) $creditId, 'amount' => $partial ? $amountTtc : null, 'reason' => $reason));
 			$this->db->commit();
 		} catch (ClinicPayRefusedException $e) {
 			$this->rollbackAll();
@@ -729,13 +777,26 @@ class Paybill extends CommonObject
 				}
 			}
 
-			$sql = "UPDATE ".$this->db->prefix()."clinicpay_bill SET status = ".CLINICPAY_BILL_REFUNDED;
-			$sql .= " WHERE rowid = ".((int) $this->id)." AND status = ".CLINICPAY_BILL_PAID;
-			$resql = $this->db->query($sql);
-			if (!$resql) {
-				throw new RuntimeException($this->db->lasterror());
+			// V0.2: flip the bill to refunded only when credit notes now cover
+			// the full invoice (card refunds credit a partial remaining
+			// balance; the bill itself stays paid).
+			$origTotal = 0.0;
+			$resOrig = $this->db->query("SELECT total_ttc FROM ".$this->db->prefix()."facture WHERE rowid = ".((int) $this->fk_invoice));
+			if ($resOrig) {
+				$oOrig = $this->db->fetch_object($resOrig);
+				$origTotal = $oOrig ? (float) $oOrig->total_ttc : 0.0;
+				$this->db->free($resOrig);
 			}
-			patient_audit($this->db, $this->fk_patient, 'CLINICPAY_REFUND', $user, array('op' => 'execute', 'ref' => $this->ref, 'bill' => $this->id, 'credit_note' => (int) $credit->id));
+			$fullCover = ($this->creditedTotal((int) $this->fk_invoice) + 0.005 >= $origTotal);
+			if ($fullCover) {
+				$sql = "UPDATE ".$this->db->prefix()."clinicpay_bill SET status = ".CLINICPAY_BILL_REFUNDED;
+				$sql .= " WHERE rowid = ".((int) $this->id)." AND status = ".CLINICPAY_BILL_PAID;
+				$resql = $this->db->query($sql);
+				if (!$resql) {
+					throw new RuntimeException($this->db->lasterror());
+				}
+			}
+			patient_audit($this->db, $this->fk_patient, 'CLINICPAY_REFUND', $user, array('op' => 'execute', 'ref' => $this->ref, 'bill' => $this->id, 'credit_note' => (int) $credit->id, 'amount' => price2num($credit->total_ttc, 'MT'), 'full' => $fullCover ? 1 : 0));
 			$this->db->commit();
 		} catch (Throwable $e) {
 			$this->rollbackAll();
@@ -845,9 +906,12 @@ class Paybill extends CommonObject
 
 	/**
 	 * Validated credit notes total of an invoice (full-credit detection).
+	 * facture.total_ttc is stored NEGATIVE for credit notes, so the absolute
+	 * value is returned (V0.2 fix: the negative sum silently disabled the
+	 * already-refunded guard).
 	 *
 	 * @param	int	$invoiceId	Native invoice rowid
-	 * @return	float			Sum of validated credit note totals
+	 * @return	float				Positive sum of validated credit note totals
 	 */
 	private function creditedTotal($invoiceId)
 	{
@@ -861,7 +925,7 @@ class Paybill extends CommonObject
 		}
 		$obj = $this->db->fetch_object($resql);
 		$this->db->free($resql);
-		return $obj ? (float) $obj->n : 0.0;
+		return $obj ? abs((float) $obj->n) : 0.0;
 	}
 
 	/**
