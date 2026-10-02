@@ -62,6 +62,10 @@ if (!function_exists('dol_now')) {
 if (!function_exists('dol_time_plus_duree')) {
 	function dol_time_plus_duree($time, $duration, $type) { return $time + 86400 * (int) $duration; }
 }
+if (!function_exists('img_picto')) {
+	// Descriptor tests instantiate mod* classes whose menu entries call img_picto()
+	function img_picto($titlealt = 'default', $picto = '', $moreatt = '', $pictoisfullpath = false, $srconly = 0, $notitle = 0, $alt = '', $morecss = '', $marginleftonlyshort = 2) { return ''; }
+}
 if (!function_exists('dol_include_once')) {
 	function dol_include_once($relpath) {
 		$tries = array(DOL_DOCUMENT_ROOT.$relpath, DOL_DOCUMENT_ROOT.'/custom'.$relpath);
