@@ -140,8 +140,40 @@ class modClinicPay extends DolibarrModules
 		$this->menu = array();
 		$r = 0;
 
+		// Group: billing (charges / prepaid cards)
 		$this->menu[$r++] = array(
 			'fk_menu' => 'fk_mainmenu=clinic',
+			'type' => 'left',
+			'titre' => 'ClinicMenuBilling',
+			'mainmenu' => 'clinic',
+			'leftmenu' => 'clinic_billing',
+			'prefix' => img_picto('', 'fa-credit-card_fas_#5e35b1', 'class="paddingright pictofixedwidth"'),
+			'url' => '/clinicpay/bill_list.php',
+			'langs' => 'clinicpay@clinicpay',
+			'position' => 1400,
+			'enabled' => 'isModEnabled("clinicpay")',
+			'perms' => '$user->hasRight("clinicpay", "read")',
+			'target' => '',
+			'user' => 2,
+		);
+		// Group: reports (revenue / consumption / stock / visits)
+		$this->menu[$r++] = array(
+			'fk_menu' => 'fk_mainmenu=clinic',
+			'type' => 'left',
+			'titre' => 'ClinicMenuReport',
+			'mainmenu' => 'clinic',
+			'leftmenu' => 'clinic_report',
+			'prefix' => img_picto('', 'fa-chart-bar_fas_#00897b', 'class="paddingright pictofixedwidth"'),
+			'url' => '/clinicpay/report.php',
+			'langs' => 'clinicpay@clinicpay',
+			'position' => 1500,
+			'enabled' => 'isModEnabled("clinicpay") || isModEnabled("pharmacy") || isModEnabled("medrecord")',
+			'perms' => '$user->hasRight("clinicpay", "read") || $user->hasRight("pharmacy", "read") || $user->hasRight("medrecord", "read")',
+			'target' => '',
+			'user' => 2,
+		);
+		$this->menu[$r++] = array(
+			'fk_menu' => 'fk_mainmenu=clinic,fk_leftmenu=clinic_billing',
 			'type' => 'left',
 			'titre' => 'ClinicPayBillList',
 			'mainmenu' => 'clinic',
@@ -156,7 +188,7 @@ class modClinicPay extends DolibarrModules
 			'user' => 2,
 		);
 		$this->menu[$r++] = array(
-			'fk_menu' => 'fk_mainmenu=clinic',
+			'fk_menu' => 'fk_mainmenu=clinic,fk_leftmenu=clinic_billing',
 			'type' => 'left',
 			'titre' => 'ClinicPayCardList',
 			'mainmenu' => 'clinic',
@@ -171,7 +203,7 @@ class modClinicPay extends DolibarrModules
 			'user' => 2,
 		);
 		$this->menu[$r++] = array(
-			'fk_menu' => 'fk_mainmenu=clinic',
+			'fk_menu' => 'fk_mainmenu=clinic,fk_leftmenu=clinic_admin',
 			'type' => 'left',
 			'titre' => 'ClinicPaySetup',
 			'mainmenu' => 'clinic',
@@ -179,11 +211,26 @@ class modClinicPay extends DolibarrModules
 			'prefix' => img_picto('', 'fa-cog_fas_#546e7a', 'class="paddingright pictofixedwidth"'),
 			'url' => '/clinicpay/admin/setup.php',
 			'langs' => 'clinicpay@clinicpay',
-			'position' => 1400 + $r,
+			'position' => 1602,
 			'enabled' => 'isModEnabled("clinicpay")',
 			'perms' => '$user->hasRight("clinicpay", "admin")',
 			'target' => '',
 			'user' => 0,
+		);
+		$this->menu[$r++] = array(
+			'fk_menu' => 'fk_mainmenu=clinic,fk_leftmenu=clinic_report',
+			'type' => 'left',
+			'titre' => 'ClinicPayReport',
+			'mainmenu' => 'clinic',
+			'leftmenu' => 'clinicpay_report',
+			'prefix' => img_picto('', 'fa-chart-line_fas_#2e7d32', 'class="paddingright pictofixedwidth"'),
+			'url' => '/clinicpay/report.php',
+			'langs' => 'clinicpay@clinicpay',
+			'position' => 1501,
+			'enabled' => 'isModEnabled("clinicpay")',
+			'perms' => '$user->hasRight("clinicpay", "read")',
+			'target' => '',
+			'user' => 2,
 		);
 	}
 
