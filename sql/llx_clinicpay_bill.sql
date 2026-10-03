@@ -14,6 +14,10 @@ CREATE TABLE llx_clinicpay_bill(
 	amount_total		decimal(24,8) DEFAULT 0 NOT NULL,
 	channel				varchar(16) DEFAULT NULL,
 	channel_ref			varchar(64) DEFAULT NULL,
+	-- Tax invoice number (China e-invoice / 数电票号码). NOT a tax system
+	-- integration: the invoice is issued outside Dolibarr, this column only
+	-- records the number that finance wrote back onto the charge bill.
+	fapiao_no			varchar(64) DEFAULT NULL,
 	fk_user_pay			integer DEFAULT NULL,
 	date_pay			datetime DEFAULT NULL,
 	note				text DEFAULT NULL,

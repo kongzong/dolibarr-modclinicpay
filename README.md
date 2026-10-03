@@ -71,6 +71,18 @@ cd tests/integration && PHP=/d/dolibarr/bin/php/php7.4.26/php.exe bash run_phase
 
   卡退卡走 bill 退费流（无独立端点）。所有端点不输出患者证件号。
 
+## 税票号登记（fapiao_no，2026-10-03）
+
+中国的「发票」指税务发票（增值税发票/数电票），**只能由税控或电子税务平台开具**，本项目**明确不接税控**。因此这里只做**登记回填**：
+
+- 字段 `llx_clinicpay_bill.fapiao_no varchar(64)`，**挂在业务收费单上，不动 `llx_facture`** —— 后者是 Dolibarr 内部商业账单（应收/收款凭证），与税务发票不是一回事，混在一起会让两层语义都变脏
+- 语义：财务在税控系统开票后，把票号填回本单，供业务单据 ↔ 税票人工对账
+- 入口：收费单详情页（已收费/已退款单，`clinicpay.write` 权限）行内登记/修改；空值提交即清除
+- 草稿单禁止登记（税票在收款后开具），类方法 `setFapiaoNo()` 返回 `ClinicPayErrFapiaoDraft`
+- 留痕：`patient_audit` 记 `CLINICPAY_BILL / op=fapiao`（含票号）
+- 列表面板新增「税票号」列，未登记显示 `-`
+- 老库升级：`scripts/ensure_clinicpay_fapiao.php`（幂等 ALTER，seed 已自动调用）
+
 ## 红线（摘要，全文见 spec §5）
 
 1. 金额全部经 `calcul_price_total()`/`price2num()`；行小计与总额快照落库

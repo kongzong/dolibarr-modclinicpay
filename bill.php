@@ -305,6 +305,22 @@ if ($action == 'confirm_refund' && $confirm == 'yes' && $id > 0 && $token != '')
 	exit;
 }
 
+// ------------------------------------------------------------ tax invoice number (registry only)
+if ($action == 'set_fapiao' && $id > 0 && $token != '') {
+	if (!$user->hasRight('clinicpay', 'write')) {
+		accessforbidden();
+	}
+	$fapiaoNo = (string) GETPOST('fapiao_no', 'alphanohtml');
+	$result = $dao->setFapiaoNo($user, $fapiaoNo);
+	if ($result > 0) {
+		setEventMessages($fapiaoNo === '' ? $langs->trans("ClinicPayFapiaoCleared") : $langs->trans("ClinicPayFapiaoSaved", $fapiaoNo), null, 'mesgs');
+	} else {
+		clinicpay_redirect_error($dao->error, $_SERVER["PHP_SELF"].'?id='.$id);
+	}
+	header('Location: '.$_SERVER["PHP_SELF"].'?id='.$id);
+	exit;
+}
+
 // ------------------------------------------------------------ card view
 if ($id <= 0 || $dao->fetch($id) <= 0) {
 	llxHeader('', $langs->trans("ClinicPayBill"));
@@ -353,6 +369,13 @@ if ($isPaid) {
 }
 print '</td></tr>';
 print '<tr><td>'.$langs->trans("DateCreation").'</td><td colspan="3">'.dol_print_date($dao->date_creation, 'dayhour').'</td></tr>';
+print '<tr><td>'.$langs->trans("ClinicPayFapiaoNo").'</td><td colspan="3">';
+if ((string) $dao->fapiao_no !== '') {
+	print '<span class="opacitymedium">'.$langs->trans("ClinicPayFapiaoRegistered").'</span> '.dol_escape_htmltag($dao->fapiao_no);
+} else {
+	print '<span class="opacitymedium">'.$langs->trans("ClinicPayFapiaoNone").'</span>';
+}
+print '</td></tr>';
 if ($dao->note) {
 	print '<tr><td>'.$langs->trans("ClinicPayBillNote").'</td><td colspan="3">'.dol_escape_htmltag($dao->note).'</td></tr>';
 }
@@ -378,6 +401,17 @@ print '</table></div>';
 
 // Actions
 print '<div class="tabsAction">';
+if (!$isDraft && $user->hasRight('clinicpay', 'write')) {
+	// Registry only: the tax invoice itself is issued in the tax system.
+	print '<form method="POST" action="'.$_SERVER["PHP_SELF"].'" class="inlineform">';
+	print '<input type="hidden" name="token" value="'.newToken().'">';
+	print '<input type="hidden" name="action" value="set_fapiao">';
+	print '<input type="hidden" name="id" value="'.((int) $dao->id).'">';
+	print '<span class="opacitymedium">'.$langs->trans("ClinicPayFapiaoNo").'</span> ';
+	print '<input class="flat minwidth200" type="text" name="fapiao_no" value="'.dol_escape_htmltag((string) $dao->fapiao_no).'" placeholder="'.dol_escape_htmltag($langs->trans("ClinicPayFapiaoPlaceholder")).'">';
+	print '<button type="submit" class="butAction smallpaddingimp">'.$langs->trans("ClinicPayFapiaoSave").'</button>';
+	print '</form>';
+}
 if ($isPaid && $user->hasRight('clinicpay', 'write')) {
 	print dolGetButtonAction($langs->trans("ClinicPayRefundStart"), '', 'delete', $_SERVER["PHP_SELF"].'?id='.$dao->id.'&action=refund&token='.newToken(), '', 1);
 }

@@ -69,6 +69,8 @@ class Paybill extends CommonObject
 	public $channel;
 	/** @var string Scan reference */
 	public $channel_ref;
+	/** @var string Tax invoice number written back from the tax system (not a tax integration) */
+	public $fapiao_no;
 	/** @var int|null */
 	public $fk_user_pay;
 	/** @var int|null Unix timestamp */
@@ -115,7 +117,7 @@ class Paybill extends CommonObject
 	{
 		$sql = "SELECT b.rowid, b.entity, b.ref, b.fk_patient, b.fk_medrecord, b.fk_invoice, b.status, b.amount_total,";
 		$sql .= " b.channel, b.channel_ref, b.fk_user_pay, b.date_pay, b.note, b.model_pdf, b.last_main_doc,";
-		$sql .= " b.fk_user_creat, b.date_creation";
+		$sql .= " b.fk_user_creat, b.date_creation, b.fapiao_no";
 		$sql .= " FROM ".$this->db->prefix()."clinicpay_bill as b";
 		$sql .= " WHERE b.rowid = ".((int) $id);
 		$resql = $this->db->query($sql);
@@ -138,6 +140,7 @@ class Paybill extends CommonObject
 		$this->amount_total = (float) $obj->amount_total;
 		$this->channel = $obj->channel;
 		$this->channel_ref = $obj->channel_ref;
+		$this->fapiao_no = (string) $obj->fapiao_no;
 		$this->fk_user_pay = $obj->fk_user_pay !== null ? (int) $obj->fk_user_pay : null;
 		$this->date_pay = $obj->date_pay ? $this->db->jdate($obj->date_pay) : null;
 		$this->note = (string) $obj->note;
@@ -224,7 +227,7 @@ class Paybill extends CommonObject
 		}
 		$total = (int) $this->db->fetch_object($resql)->n;
 
-		$select = "SELECT b.rowid, b.ref, b.fk_patient, b.status, b.amount_total, b.channel, b.date_pay, b.date_creation,";
+		$select = "SELECT b.rowid, b.ref, b.fk_patient, b.status, b.amount_total, b.channel, b.date_pay, b.date_creation, b.fapiao_no,";
 		$select .= " pp.card_no, s.nom as patient_name";
 		$sql = $select.$from.$where;
 		$sql .= $this->db->order('b.rowid', 'DESC');
@@ -831,6 +834,37 @@ class Paybill extends CommonObject
 		$obj = $this->db->fetch_object($resql);
 		$this->db->free($resql);
 		return $obj ? (int) $obj->rowid : 0;
+	}
+
+	/**
+	 * Record the tax invoice number (China) that finance wrote back after
+	 * issuing the invoice in the tax system. Pure registry: Dolibarr does not
+	 * open, number or validate tax invoices, and the native invoice
+	 * (llx_facture) is left untouched.
+	 *
+	 * @param	User		$user		Operator writing the number back
+	 * @param	string		$fapiaoNo	Tax invoice number (empty clears it)
+	 * @return	int			>0 OK, <=0 KO
+	 */
+	public function setFapiaoNo(User $user, $fapiaoNo)
+	{
+		$fapiaoNo = trim((string) $fapiaoNo);
+
+		if ($this->status === CLINICPAY_BILL_DRAFT) {
+			$this->error = 'ClinicPayErrFapiaoDraft';
+			return -1;
+		}
+		$sql = "UPDATE ".$this->db->prefix()."clinicpay_bill SET fapiao_no = ";
+		$sql .= $fapiaoNo === '' ? "NULL" : "'".$this->db->escape($fapiaoNo)."'";
+		$sql .= " WHERE rowid = ".((int) $this->id);
+		if (!$this->db->query($sql)) {
+			$this->error = $this->db->lasterror();
+			return -1;
+		}
+		$this->fapiao_no = $fapiaoNo;
+
+		patient_audit($this->db, $this->fk_patient, 'CLINICPAY_BILL', $user, array('op' => 'fapiao', 'ref' => $this->ref, 'bill' => $this->id, 'fapiao_no' => $fapiaoNo));
+		return 1;
 	}
 
 	// ================================================================= //
