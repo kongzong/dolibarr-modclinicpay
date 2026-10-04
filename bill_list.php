@@ -63,6 +63,15 @@ $dateFrom = dol_mktime(0, 0, 0, GETPOSTINT('search_frommonth'), GETPOSTINT('sear
 $dateTo = dol_mktime(23, 59, 59, GETPOSTINT('search_tomonth'), GETPOSTINT('search_today'), GETPOSTINT('search_toyear'));
 $searchFkPatient = GETPOSTINT('search_fk_patient');
 $searchChannel = GETPOST('search_channel', 'alpha');
+// A select with show_empty=1 submits -1 for "nothing chosen". That is not a
+// channel name, so it is normalised to an empty string; passing it through made
+// the search look for a channel literally called "-1" and emptied the list.
+if ($searchChannel === '-1') {
+	$searchChannel = '';
+}
+// Tax invoice number, free text: a value filters on it, an empty one (the normal
+// case) applies no filter at all.
+$searchFapiao = trim(GETPOST('search_fapiao', 'alphanohtml'));
 // Charts revenue on date_pay; a drill-down from the dashboard says so here so
 // the figures the user clicked on are the ones they get back.
 // 'aZ' would strip the underscore, so alphanohtml keeps "date_pay" intact.
@@ -74,6 +83,7 @@ if (GETPOST('button_removefilter_x', 'alpha') || GETPOST('button_removefilter', 
 	$dateTo = '';
 	$searchFkPatient = 0;
 	$searchChannel = '';
+	$searchFapiao = '';
 }
 
 $limit = GETPOSTINT('limit') > 0 ? GETPOSTINT('limit') : $conf->liste_limit;
@@ -84,7 +94,7 @@ if ($page < 0) {
 $offset = $limit * $page;
 
 $dao = new Paybill($db);
-$result = $dao->search(array('q' => $search, 'status' => $status, 'from' => $dateFrom, 'to' => $dateTo, 'fk_patient' => $searchFkPatient, 'channel' => $searchChannel, 'date_field' => $dateField), $limit, $offset);
+$result = $dao->search(array('q' => $search, 'status' => $status, 'from' => $dateFrom, 'to' => $dateTo, 'fk_patient' => $searchFkPatient, 'channel' => $searchChannel, 'date_field' => $dateField, 'fapiao' => $searchFapiao), $limit, $offset);
 if ($result === null) {
 	dol_print_error($db, $dao->error);
 	exit;
@@ -112,6 +122,9 @@ if ($searchFkPatient > 0) {
 }
 if ($searchChannel !== '') {
 	$param .= '&search_channel='.urlencode($searchChannel);
+}
+if ($searchFapiao !== '') {
+	$param .= '&search_fapiao='.urlencode($searchFapiao);
 }
 if ($dateField === 'date_pay') {
 	$param .= '&date_field=date_pay';
@@ -157,6 +170,7 @@ print '<td class="liste_titre" colspan="3"><input type="text" name="search" clas
 print '<td class="liste_titre"></td>';
 print '<td class="liste_titre">'.$form->selectarray('search_channel', $channelOptions, $searchChannel, 1, 0, 0, '', 0, 0, 0, '', 'maxwidth100').'</td>';
 print '<td class="liste_titre center nowrap">'.$form->selectDate($dateFrom, 'search_from', 0, 0, 1, '', 1, 0).' - '.$form->selectDate($dateTo, 'search_to', 0, 0, 1, '', 1, 0).'</td>';
+print '<td class="liste_titre center"><input type="text" name="search_fapiao" class="minwidth100" value="'.dol_escape_htmltag($searchFapiao).'"></td>';
 print '<td class="liste_titre center">'.$form->selectarray('search_status', $statusOptions, $status >= 0 ? (string) $status : '', 1, 0, 0, '', 0, 0, 0, '', 'maxwidth100').'</td>';
 print '<td class="liste_titre center maxwidthsearch">';
 print '<button type="submit" class="liste_titre button_search reposition" name="button_search" value="x"><span class="fa fa-search"></span></button>';

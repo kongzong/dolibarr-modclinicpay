@@ -222,8 +222,22 @@ class Paybill extends CommonObject
 		if (!empty($f['fk_patient'])) {
 			$where .= " AND b.fk_patient = ".((int) $f['fk_patient']);
 		}
-		if (isset($f['channel']) && (string) $f['channel'] !== '') {
+		// Form selects submit -1 for "no selection". Passing that through as a
+		// channel value matches nothing and empties the list, so it is treated as
+		// "filter not set" like an empty string.
+		if (isset($f['channel']) && (string) $f['channel'] !== '' && (string) $f['channel'] !== '-1') {
 			$where .= " AND b.channel = '".$this->db->escape((string) $f['channel'])."'";
+		}
+		// Tax invoice number, for the list and the reconciliation page.
+		// An empty 'fapiao' means "not filtering": a list page submits its input
+		// on every request, so treating empty as a filter would silently hide all
+		// the bills that already have a number. Searching for the bills still
+		// waiting for one is a separate, explicit key.
+		if (isset($f['fapiao']) && trim((string) $f['fapiao']) !== '') {
+			$where .= " AND b.fapiao_no LIKE '%".$this->db->escape(trim((string) $f['fapiao']))."%'";
+		}
+		if (!empty($f['fapiao_empty'])) {
+			$where .= " AND (b.fapiao_no IS NULL OR b.fapiao_no = '')";
 		}
 
 		$sql = "SELECT COUNT(*) as n".$from.$where;

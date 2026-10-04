@@ -295,4 +295,126 @@ class PaybillSearchBehaviorTest extends BehaviorTestCase
 			'total must report the full match count even when the page is limited'
 		);
 	}
+
+	/**
+	 * A form select with show_empty=1 submits -1 for "nothing chosen". Treating
+	 * that as a real value searched for a channel literally named "-1" and
+	 * emptied the whole list, which is what a user reported as a broken filter.
+	 *
+	 * @param	string	$label	human name for the message
+	 * @param	array	$filters	search filters to try
+	 * @return	void
+	 */
+	private function assertNotWipedByPlaceholder($label, array $filters)
+	{
+		$dao = new Paybill($this->db);
+		$all = $dao->search(array(), 500, 0);
+		$res = $dao->search($filters, 500, 0);
+		$this->assertTrue(is_array($res), $label.': search must return a result set, got '.$dao->error);
+		$this->assertSame(
+			(int) $all['total'],
+			(int) $res['total'],
+			$label.': the placeholder must not narrow anything, all='.$all['total'].' filtered='.$res['total']
+		);
+	}
+
+	/**
+	 * The status select and the channel select both submit -1 when untouched.
+	 */
+	public function testSelectPlaceholdersDoNotEmptyTheList()
+	{
+		$this->assertNotWipedByPlaceholder('channel placeholder', array('channel' => '-1'));
+		$this->assertNotWipedByPlaceholder('status placeholder', array('status' => -1));
+		$this->assertNotWipedByPlaceholder('both placeholders', array('channel' => '-1', 'status' => -1));
+	}
+
+	/**
+	 * A real channel must still narrow the list, otherwise "ignoring -1" could
+	 * be satisfied by dropping the filter altogether.
+	 */
+	public function testRealChannelStillNarrows()
+	{
+		$sql = "SELECT DISTINCT channel FROM ".$this->db->prefix()."clinicpay_bill";
+		$sql .= " WHERE channel IS NOT NULL AND channel <> ''";
+		$resql = $this->db->query($sql);
+		$channels = array();
+		if ($resql) {
+			while ($o = $this->db->fetch_object($resql)) {
+				$channels[] = (string) $o->channel;
+			}
+			$this->db->free($resql);
+		}
+		if (empty($channels)) {
+			throw new BehaviorTestSkip('no demo bill carries a channel');
+		}
+
+		$dao = new Paybill($this->db);
+		$all = $dao->search(array(), 500, 0);
+		foreach ($channels as $channel) {
+			$res = $dao->search(array('channel' => $channel), 500, 0);
+			$this->assertTrue(is_array($res), 'search failed for channel '.$channel);
+			$this->assertGreaterThan(0, (int) $res['total'], 'channel '.$channel.' must match at least its own bills');
+			$this->assertTrue(
+				(int) $res['total'] <= (int) $all['total'],
+				'a channel filter must never widen the result set'
+			);
+			foreach ($res['rows'] as $row) {
+				$this->assertSame($channel, (string) $row->channel, 'bill '.$row->ref.' is not on channel '.$channel);
+			}
+		}
+	}
+
+	/**
+	 * The tax invoice number became filterable on the bill list because the
+	 * reconciliation page needs the same view. An empty value must apply no
+	 * filter (the normal case), a value must match, and an impossible value must
+	 * return nothing rather than everything.
+	 */
+	public function testFapiaoFilter()
+	{
+		$dao = new Paybill($this->db);
+		$all = $dao->search(array(), 500, 0);
+		$baseline = (int) $all['total'];
+
+		// Empty is the default state of the input: it must not filter. The list
+		// page submits it on every request, so an empty value that filtered would
+		// hide every bill that already carries a number.
+		$empty = $dao->search(array('fapiao' => ''), 500, 0);
+		$this->assertSame($baseline, (int) $empty['total'], 'an empty fapiao input must not filter anything');
+
+		// The bills still waiting for a number are a separate, explicit question.
+		$missing = $dao->search(array('fapiao_empty' => 1), 500, 0);
+		$this->assertTrue(is_array($missing), 'fapiao_empty must be accepted');
+		foreach ($missing['rows'] as $row) {
+			$this->assertSame(
+				'',
+				(string) $row->fapiao_no,
+				'bill '.$row->ref.' has a number '.$row->fapiao_no.' but came back from the "still missing" filter'
+			);
+		}
+
+		// An impossible number must return nothing.
+		$none = $dao->search(array('fapiao' => 'ZZ-NOT-A-REAL-INVOICE'), 500, 0);
+		$this->assertSame(0, (int) $none['total'], 'a fapiao number nobody has must match nothing');
+
+		// A real one must return exactly the bills that carry it.
+		$sql = "SELECT fapiao_no FROM ".$this->db->prefix()."clinicpay_bill";
+		$sql .= " WHERE fapiao_no IS NOT NULL AND fapiao_no <> '' ORDER BY rowid LIMIT 1";
+		$resql = $this->db->query($sql);
+		$sample = $resql ? (string) $this->db->fetch_object($resql)->fapiao_no : '';
+		if ($resql) {
+			$this->db->free($resql);
+		}
+		if ($sample === '') {
+			throw new BehaviorTestSkip('no demo bill carries a tax invoice number');
+		}
+		$hit = $dao->search(array('fapiao' => $sample), 500, 0);
+		$this->assertGreaterThan(0, (int) $hit['total'], 'the real fapiao number must match its own bill');
+		foreach ($hit['rows'] as $row) {
+			$this->assertTrue(
+				strpos((string) $row->fapiao_no, $sample) !== false,
+				'bill '.$row->ref.' does not carry '.$sample
+			);
+		}
+	}
 }
