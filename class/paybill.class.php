@@ -219,7 +219,7 @@ class Paybill extends CommonObject
 		if (!empty($f['to'])) {
 			$where .= " AND ".$dateField." <= '".$this->db->idate((int) $f['to'])."'";
 		}
-		if (!empty($f['fk_patient'])) {
+		if ((int) $f['fk_patient'] > 0) {
 			$where .= " AND b.fk_patient = ".((int) $f['fk_patient']);
 		}
 		// Form selects submit -1 for "no selection". Passing that through as a

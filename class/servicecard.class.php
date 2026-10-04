@@ -148,7 +148,7 @@ class ServiceCard extends CommonObject
 		if (!empty($f['card_type'])) {
 			$where .= " AND c.card_type = '".$this->db->escape($f['card_type'])."'";
 		}
-		if (!empty($f['fk_patient'])) {
+		if ((int) $f['fk_patient'] > 0) {
 			$where .= " AND c.fk_patient = ".((int) $f['fk_patient']);
 		}
 

@@ -32,6 +32,7 @@ $suites = array(
 	'PaybillSearchBehaviorTest.php',
 	'StockCountPostBehaviorTest.php',
 	'DispenseConfirmBehaviorTest.php',
+	'ListPlaceholderBehaviorTest.php',
 );
 
 $pass = 0;
