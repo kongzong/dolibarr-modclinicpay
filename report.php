@@ -309,10 +309,48 @@ print '</tr>';
 if (empty($aggregates)) {
 	print '<tr><td colspan="6"><span class="opacitymedium">'.$langs->trans("ClinicPayReportNoData").'</span></td></tr>';
 }
+/**
+ * Query string that opens the bill list on the slice a report row represents,
+ * so a number in the report can be clicked through to the bills behind it.
+ *
+ * Only the dimensions the list can filter on are offered: the bill list has no
+ * doctor filter, so the "by doctor" rows stay plain text on purpose.
+ *
+ * @param	string			$dim		day | doctor | channel
+ * @param	object			$row		Aggregate row (dim_id / dim_label)
+ * @return	string						Query string without leading "?", '' when not drillable
+ */
+function clinicpayReportDrill($dim, $row)
+{
+	if ($dim === 'day') {
+		$ts = strtotime((string) $row->dim_id);
+		if (!$ts) {
+			return '';
+		}
+		// The report counts on date_pay, so the list has to filter the same column.
+		return 'search_fromyear='.date('Y', $ts).'&search_frommonth='.date('m', $ts).'&search_fromday='.date('d', $ts)
+			.'&search_toyear='.date('Y', $ts).'&search_tomonth='.date('m', $ts).'&search_today='.date('d', $ts)
+			.'&date_field=date_pay';
+	}
+	if ($dim === 'channel' && (string) $row->dim_id !== '') {
+		$q = 'search_channel='.urlencode((string) $row->dim_id).'&date_field=date_pay';
+		if (GETPOSTINT('search_fromyear')) {
+			$q .= '&search_fromyear='.GETPOSTINT('search_fromyear').'&search_frommonth='.GETPOSTINT('search_frommonth').'&search_fromday='.GETPOSTINT('search_fromday');
+		}
+		if (GETPOSTINT('search_toyear')) {
+			$q .= '&search_toyear='.GETPOSTINT('search_toyear').'&search_tomonth='.GETPOSTINT('search_tomonth').'&search_today='.GETPOSTINT('search_today');
+		}
+		return $q;
+	}
+	return '';
+}
+
 foreach ($aggregates as $r) {
 	$net = (float) $r->amount_paid - (float) $r->amount_refund;
+	$drill = clinicpayReportDrill($dim, $r);
 	print '<tr class="oddeven">';
-	print '<td class="nowrap">'.dol_escape_htmltag((string) $r->dim_label).'</td>';
+	$label = dol_escape_htmltag((string) $r->dim_label);
+	print '<td class="nowrap">'.($drill !== '' ? '<a href="'.dol_buildpath('/clinicpay/bill_list.php', 1).'?'.$drill.'">'.$label.'</a>' : $label).'</td>';
 	print '<td class="right">'.(int) $r->nb_bill.'</td>';
 	print '<td class="right">'.price((float) $r->amount_all).'</td>';
 	print '<td class="right">'.price((float) $r->amount_paid).'</td>';

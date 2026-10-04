@@ -325,4 +325,45 @@ class ClinicPayTest extends \PHPUnit\Framework\TestCase
 			$this->assertRegExp('/^'.$k.'=/m', $en, 'en_US key '.$k);
 		}
 	}
+
+	/**
+	 * 2026-10-04: tax invoice reconciliation page. The three things that can
+	 * silently make it lie are pinned here: the period (date_pay, not
+	 * date_creation), the "missing" definition (one expression shared by the
+	 * totals, the monthly rows and the detail), and the default window.
+	 */
+	public function testFapiaoReportContracts()
+	{
+		$page = file_get_contents(__DIR__.'/../../report_fapiao.php');
+
+		$this->assertStringContainsString('$missExpr = "(b.fapiao_no IS NULL OR TRIM(b.fapiao_no) = \'\')"', $page, 'one shared missing definition');
+		$this->assertStringContainsString('b.date_pay IS NOT NULL', $page, 'drafts are out of scope');
+		$this->assertStringContainsString("b.date_pay >= '", $page, 'reconciliation runs on the collected date');
+		$this->assertGreaterThan(
+			2,
+			substr_count($page, '$missExpr'),
+			'totals, monthly rows and detail all reuse $missExpr'
+		);
+		// 30 days, not the current month: on the 1st of a month "this month"
+		// would show an empty page.
+		$this->assertStringContainsString('dol_time_plus_duree(dol_now(), -29, \'d\')', $page, 'default window is the last 30 days');
+		$this->assertStringNotContainsString("dol_mktime(0, 0, 0, (int) date('n'), 1,", $page, 'no calendar-month default');
+
+		// The bill list has to accept what the dashboard drill-down sends.
+		$list = file_get_contents(__DIR__.'/../../bill_list.php');
+		$this->assertStringContainsString("GETPOST('date_field', 'alphanohtml')", $list, "'aZ' would strip the underscore from date_pay");
+		$this->assertStringContainsString('$searchChannel', $list, 'channel filter for the doughnut drill-down');
+		$bill = file_get_contents(__DIR__.'/../../class/paybill.class.php');
+		$this->assertStringContainsString("\$f['date_field'] === 'date_pay'", $bill, 'whitelisted date column');
+		$this->assertStringContainsString("b.channel = '", $bill, 'channel filter in the search');
+	}
+
+	/** 2026-10-04: tax invoice reconciliation menu entry */
+	public function testFapiaoReportIsRegistered()
+	{
+		$desc = file_get_contents(__DIR__.'/../../core/modules/modClinicPay.class.php');
+		$this->assertStringContainsString("'url' => '/clinicpay/report_fapiao.php'", $desc, 'menu entry');
+		$this->assertStringContainsString("'leftmenu' => 'clinicpay_fapiao_report'", $desc, 'own leftmenu id');
+		$this->assertStringContainsString('fk_leftmenu=clinic_billing', $desc, 'grouped under billing');
+	}
 }

@@ -203,6 +203,21 @@ class modClinicPay extends DolibarrModules
 			'user' => 2,
 		);
 		$this->menu[$r++] = array(
+			'fk_menu' => 'fk_mainmenu=clinic,fk_leftmenu=clinic_billing',
+			'type' => 'left',
+			'titre' => 'ClinicPayFapiaoReport',
+			'mainmenu' => 'clinic',
+			'leftmenu' => 'clinicpay_fapiao_report',
+			'prefix' => img_picto('', 'fa-file-invoice-dollar_fas_#2e7d32', 'class="paddingright pictofixedwidth"'),
+			'url' => '/clinicpay/report_fapiao.php',
+			'langs' => 'clinicpay@clinicpay',
+			'position' => 1400 + $r,
+			'enabled' => 'isModEnabled("clinicpay")',
+			'perms' => '$user->hasRight("clinicpay", "read")',
+			'target' => '',
+			'user' => 2,
+		);
+		$this->menu[$r++] = array(
 			'fk_menu' => 'fk_mainmenu=clinic,fk_leftmenu=clinic_admin',
 			'type' => 'left',
 			'titre' => 'ClinicPaySetup',

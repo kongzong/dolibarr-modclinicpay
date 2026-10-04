@@ -209,14 +209,21 @@ class Paybill extends CommonObject
 		} else {
 			$where .= " AND b.status <> ".CLINICPAY_BILL_REFUNDED;
 		}
+		// The list dates bills on date_creation by default; the dashboard
+		// charts revenue on date_pay, so a drill-down passes date_field to
+		// keep the two views agreeing.
+		$dateField = (isset($f['date_field']) && $f['date_field'] === 'date_pay') ? 'b.date_pay' : 'b.date_creation';
 		if (!empty($f['from'])) {
-			$where .= " AND b.date_creation >= '".$this->db->idate((int) $f['from'])."'";
+			$where .= " AND ".$dateField." >= '".$this->db->idate((int) $f['from'])."'";
 		}
 		if (!empty($f['to'])) {
-			$where .= " AND b.date_creation <= '".$this->db->idate((int) $f['to'])."'";
+			$where .= " AND ".$dateField." <= '".$this->db->idate((int) $f['to'])."'";
 		}
 		if (!empty($f['fk_patient'])) {
 			$where .= " AND b.fk_patient = ".((int) $f['fk_patient']);
+		}
+		if (isset($f['channel']) && (string) $f['channel'] !== '') {
+			$where .= " AND b.channel = '".$this->db->escape((string) $f['channel'])."'";
 		}
 
 		$sql = "SELECT COUNT(*) as n".$from.$where;

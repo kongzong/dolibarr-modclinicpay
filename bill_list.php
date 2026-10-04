@@ -62,12 +62,18 @@ $status = ($searchStatus !== '' && is_numeric($searchStatus)) ? (int) $searchSta
 $dateFrom = dol_mktime(0, 0, 0, GETPOSTINT('search_frommonth'), GETPOSTINT('search_fromday'), GETPOSTINT('search_fromyear'));
 $dateTo = dol_mktime(23, 59, 59, GETPOSTINT('search_tomonth'), GETPOSTINT('search_today'), GETPOSTINT('search_toyear'));
 $searchFkPatient = GETPOSTINT('search_fk_patient');
+$searchChannel = GETPOST('search_channel', 'alpha');
+// Charts revenue on date_pay; a drill-down from the dashboard says so here so
+// the figures the user clicked on are the ones they get back.
+// 'aZ' would strip the underscore, so alphanohtml keeps "date_pay" intact.
+$dateField = GETPOST('date_field', 'alphanohtml') === 'date_pay' ? 'date_pay' : 'date_creation';
 if (GETPOST('button_removefilter_x', 'alpha') || GETPOST('button_removefilter', 'alpha')) {
 	$search = '';
 	$status = -1;
 	$dateFrom = '';
 	$dateTo = '';
 	$searchFkPatient = 0;
+	$searchChannel = '';
 }
 
 $limit = GETPOSTINT('limit') > 0 ? GETPOSTINT('limit') : $conf->liste_limit;
@@ -78,7 +84,7 @@ if ($page < 0) {
 $offset = $limit * $page;
 
 $dao = new Paybill($db);
-$result = $dao->search(array('q' => $search, 'status' => $status, 'from' => $dateFrom, 'to' => $dateTo, 'fk_patient' => $searchFkPatient), $limit, $offset);
+$result = $dao->search(array('q' => $search, 'status' => $status, 'from' => $dateFrom, 'to' => $dateTo, 'fk_patient' => $searchFkPatient, 'channel' => $searchChannel, 'date_field' => $dateField), $limit, $offset);
 if ($result === null) {
 	dol_print_error($db, $dao->error);
 	exit;
@@ -104,9 +110,16 @@ if ($dateTo) {
 if ($searchFkPatient > 0) {
 	$param .= '&search_fk_patient='.(int) $searchFkPatient;
 }
+if ($searchChannel !== '') {
+	$param .= '&search_channel='.urlencode($searchChannel);
+}
+if ($dateField === 'date_pay') {
+	$param .= '&date_field=date_pay';
+}
 
 print '<form method="GET" id="searchFormList" action="'.$_SERVER["PHP_SELF"].'">'."\n";
 print '<input type="hidden" name="limit" value="'.(int) $limit.'">';
+print '<input type="hidden" name="date_field" value="'.dol_escape_htmltag($dateField).'">';
 if ($searchFkPatient > 0) {
 	print '<input type="hidden" name="search_fk_patient" value="'.(int) $searchFkPatient.'">';
 }
@@ -128,12 +141,21 @@ foreach (array(CLINICPAY_BILL_DRAFT, CLINICPAY_BILL_PAID, CLINICPAY_BILL_REFUNDE
 	$statusOptions[(string) $st] = clinicpay_bill_status_label($st);
 }
 
+$channelOptions = array();
+$resql = $db->query("SELECT DISTINCT channel FROM ".$db->prefix()."clinicpay_bill WHERE entity IN (".getEntity('clinicpay_bill').") AND channel IS NOT NULL AND channel <> ''");
+if ($resql) {
+	while ($o = $db->fetch_object($resql)) {
+		$channelOptions[(string) $o->channel] = clinicpay_channel_label((string) $o->channel);
+	}
+	$db->free($resql);
+}
+
 print '<div class="div-table-responsive">';
 print '<table class="tagtable liste centpercent">'."\n";
 print '<tr class="liste_titre_filter">';
 print '<td class="liste_titre" colspan="3"><input type="text" name="search" class="minwidth200" placeholder="'.dol_escape_htmltag($langs->trans('ClinicPayRef').' / '.$langs->trans('PatientCardNo').' / '.$langs->trans('ThirdPartyName')).'" value="'.dol_escape_htmltag($search).'"></td>';
 print '<td class="liste_titre"></td>';
-print '<td class="liste_titre"></td>';
+print '<td class="liste_titre">'.$form->selectarray('search_channel', $channelOptions, $searchChannel, 1, 0, 0, '', 0, 0, 0, '', 'maxwidth100').'</td>';
 print '<td class="liste_titre center nowrap">'.$form->selectDate($dateFrom, 'search_from', 0, 0, 1, '', 1, 0).' - '.$form->selectDate($dateTo, 'search_to', 0, 0, 1, '', 1, 0).'</td>';
 print '<td class="liste_titre center">'.$form->selectarray('search_status', $statusOptions, $status >= 0 ? (string) $status : '', 1, 0, 0, '', 0, 0, 0, '', 'maxwidth100').'</td>';
 print '<td class="liste_titre center maxwidthsearch">';
