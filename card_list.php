@@ -126,10 +126,13 @@ foreach (array(CLINICPAY_CARD_VALID, CLINICPAY_CARD_USED, CLINICPAY_CARD_EXPIRED
 print '<div class="div-table-responsive">';
 print '<table class="tagtable liste centpercent">'."\n";
 print '<tr class="liste_titre_filter">';
-print '<td class="liste_titre" colspan="3"><input type="text" name="search" class="minwidth200" placeholder="'.dol_escape_htmltag($langs->trans('ClinicPayCardNo').' / '.$langs->trans('PatientCardNo').' / '.$langs->trans('ThirdPartyName')).'" value="'.dol_escape_htmltag($search).'"></td>';
+print '<td class="liste_titre" colspan="4"><input type="text" name="search" class="minwidth200" placeholder="'.dol_escape_htmltag($langs->trans('ClinicPayCardNo').' / '.$langs->trans('PatientCardNo').' / '.$langs->trans('ThirdPartyName')).'" value="'.dol_escape_htmltag($search).'"></td>';
 print '<td class="liste_titre"></td>';
 print '<td class="liste_titre"></td>';
-print '<td class="liste_titre center">'.$form->selectarray('search_status', $statusOptions, $status >= 0 ? (string) $status : '', 1, 0, 0, '', 0, 0, 0, '', 'maxwidth100').'</td>';
+// show_empty = -1, not 1: with 1, Form::selectarray() preselects the empty
+// option whenever the chosen value equals 1 (its check is `$id ==
+// $show_empty`), which made a real status render as the "all" option.
+print '<td class="liste_titre center">'.$form->selectarray('search_status', $statusOptions, $status >= 0 ? (string) $status : '', -1, 0, 0, '', 0, 0, 0, '', 'maxwidth100').'</td>';
 print '<td class="liste_titre center maxwidthsearch">';
 print '<button type="submit" class="liste_titre button_search reposition" name="button_search" value="x"><span class="fa fa-search"></span></button>';
 print '<button type="submit" class="liste_titre button_removefilter reposition" name="button_removefilter" value="x"><span class="fa fa-remove"></span></button>';
