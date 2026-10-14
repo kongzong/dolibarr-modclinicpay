@@ -218,6 +218,21 @@ class modClinicPay extends DolibarrModules
 			'user' => 2,
 		);
 		$this->menu[$r++] = array(
+			'fk_menu' => 'fk_mainmenu=clinic,fk_leftmenu=clinic_billing',
+			'type' => 'left',
+			'titre' => 'ClinicPayBundleMenu',
+			'mainmenu' => 'clinic',
+			'leftmenu' => 'clinicpay_bundle',
+			'prefix' => img_picto('', 'fa-boxes_fas_#ef6c00', 'class="paddingright pictofixedwidth"'),
+			'url' => '/clinicpay/bundle.php',
+			'langs' => 'clinicpay@clinicpay',
+			'position' => 1400 + $r,
+			'enabled' => 'isModEnabled("clinicpay")',
+			'perms' => '$user->hasRight("clinicpay", "read")',
+			'target' => '',
+			'user' => 2,
+		);
+		$this->menu[$r++] = array(
 			'fk_menu' => 'fk_mainmenu=clinic,fk_leftmenu=clinic_admin',
 			'type' => 'left',
 			'titre' => 'ClinicPaySetup',

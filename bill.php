@@ -42,6 +42,7 @@ dol_include_once('/patient/lib/patient.lib.php');
 dol_include_once('/clinicpay/lib/clinicpay.lib.php');
 dol_include_once('/clinicpay/class/paybill.class.php');
 dol_include_once('/pharmacy/class/dispense.class.php');
+dol_include_once('/clinicpay/class/bundle.class.php');
 dol_include_once('/prescription/class/prescriptionsheet.class.php');
 
 /**
@@ -188,7 +189,7 @@ if ($action == 'create') {
 		}
 	}
 
-	print '<div class="div-table-responsive-no-min"><table class="noborder centpercent">';
+	print '<div class="div-table-responsive-no-min"><table id="bill_editor" class="noborder centpercent">';
 	print '<tr class="liste_titre"><th>#</th><th>'.$langs->trans("ClinicPayBillProduct").'</th><th class="right" style="width:120px">'.$langs->trans("ClinicPayBillQty").'</th></tr>';
 	foreach ($editorRows as $i => $row) {
 		$sel = (int) $row['fk_product'];
@@ -216,6 +217,57 @@ if ($action == 'create') {
 	print '</table></div>';
 
 	print '<div class="opacitymedium paddingbottom">'.$langs->trans("ClinicPayBillSnapshotNote").'</div>';
+
+	// Apply-bundle picker: only for a plain editor (no dispense/prescription prefill)
+	if (empty($dispensePrefill) && !empty($products)) {
+		$bundles = ClinicPayBundle::listAll($db, 1);
+		if (!empty($bundles)) {
+			$bundleOpts = array('' => $langs->trans("ClinicPayBundleSelect"));
+			foreach ($bundles as $b) {
+				$bundleOpts[$b['id']] = $b['name'].' ('.((int) $b['nlines']).')';
+			}
+			print '<div style="margin-bottom:6px;">';
+			print '<span style="font-weight:bold;">'.$langs->trans("ClinicPayBundle").'：</span> ';
+			print $form->selectarray('bundle_pick', $bundleOpts, '', 1, 0, 0, '', 0, 0, 0, '', 'minwidth250 inline-block');
+			print '</div>';
+			print '<script type="text/javascript">
+$(function() {
+	var bundleUrl = '.json_encode(dol_buildpath('/clinicpay/ajax/bundle.php', 1)).';
+	function renumberEditor() {
+		$("#bill_editor tr.oddeven").each(function(i) {
+			var tr = $(this);
+			tr.find("select[name^=\'fk_product\']").attr("name", "fk_product["+i+"]");
+			tr.find("input[name^=\'qty\']").attr("name", "qty["+i+"]");
+		});
+	}
+	$("#bundle_pick").on("change", function() {
+		var bid = $(this).val();
+		if (!bid) { return; }
+		$.getJSON(bundleUrl, { id: bid }, function(data) {
+			if (!data || data.error) { return; }
+			var rows = $("#bill_editor tr.oddeven");
+			$.each(data.lines, function(i, l) {
+				var tr = rows.eq(i);
+				if (tr.length === 0) {
+					tr = rows.last().clone(true);
+					tr.find("input[name^=\'fk_prescription\']").remove();
+					tr.find("input[name^=\'fk_dispense\']").remove();
+					$("#bill_editor tr.oddeven").last().after(tr);
+					rows = $("#bill_editor tr.oddeven");
+				}
+				tr.find("input[name^=\'fk_prescription\']").remove();
+				tr.find("input[name^=\'fk_dispense\']").remove();
+				tr.find("select[name^=\'fk_product\']").val(l.fk_product);
+				tr.find("input[name^=\'qty\']").val(l.qty);
+			});
+			renumberEditor();
+		});
+	});
+});
+</script>';
+		}
+	}
+
 	print $form->buttonsSaveCancel("ClinicPayBillNew", "Cancel");
 	print '</form>';
 	llxFooter();
