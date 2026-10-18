@@ -152,6 +152,9 @@ if ($action == 'create') {
 	}
 
 	llxHeader('', $langs->trans("ClinicPayBillNew"));
+	// Page title: without it the page started straight with the patient banner and
+	// gave no clue what was being created.
+	print load_fiche_titre($langs->trans("ClinicPayBillNew"), '', 'fa-credit-card');
 	print patient_summary_banner($summary, array(array('label' => $langs->trans('ClinicPayBillTab'), 'url' => dol_buildpath('/clinicpay/patient_tab.php', 1).'?tab=bills&id='.((int) $fkPatientParam))), 'clinicpay');
 
 	print '<form method="POST" action="'.$_SERVER["PHP_SELF"].'">';
@@ -211,7 +214,7 @@ if ($action == 'create') {
 			print '<input type="hidden" name="fk_dispense['.$i.']" value="'.((int) $row['fk_dispense']).'">';
 		}
 		print '</td>';
-		print '<td class="right"><input class="flat maxwidth75 right" type="text" name="qty['.$i.']" value="'.$qtyVal.'"></td>';
+		print '<td class="right"><input class="flat right width75" style="width:70px;" type="text" name="qty['.$i.']" value="'.$qtyVal.'"></td>';
 		print '</tr>';
 	}
 	print '</table></div>';
