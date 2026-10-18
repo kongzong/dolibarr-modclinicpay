@@ -2,7 +2,7 @@
 -- products (exam / checkup packages) that staff apply onto a draft charge
 -- bill. Lines hold composition only (fk_product + qty): prices are snapshotted
 -- from the product current price at charge time, exactly like manual lines.
--- status 1 active, 0 inactive. Never deleted rows keep audit trace via bill_line.
+-- status 1 active, 0 inactive, 9 deleted (soft delete keeps the audit trace).
 
 CREATE TABLE llx_clinicpay_bundle(
 	rowid				integer AUTO_INCREMENT PRIMARY KEY NOT NULL,

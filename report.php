@@ -129,12 +129,19 @@ $sql .= ", SUM(b.amount_total) AS amount_all";
 // i.e. it left the draft state - refunded rows stay in the total so the
 // report reconciles with the invoiced amount.
 $sql .= ", SUM(CASE WHEN b.status IN (".CLINICPAY_BILL_PAID.", ".CLINICPAY_BILL_REFUNDED.") THEN b.amount_total ELSE 0 END) AS amount_paid";
-// Refund offset: only credit notes (type = 2) hold a negative total_ttc.
-$sql .= ", SUM(CASE WHEN f.rowid IS NOT NULL THEN ABS(f.total_ttc) ELSE 0 END) AS amount_refund";
+// Refund offset: credit notes (type = 2) hang off the ORIGINAL invoice through
+// fk_facture_source - bill.fk_invoice keeps pointing at the original invoice, so
+// joining on f.rowid = b.fk_invoice never matches. Several credit notes may
+// exist for one invoice (partial refunds), so they are aggregated first: a
+// direct JOIN would duplicate the paid amount.
+$sql .= ", SUM(COALESCE(cr.refund, 0)) AS amount_refund";
 $sql .= " FROM ".MAIN_DB_PREFIX."clinicpay_bill AS b";
 $sql .= " LEFT JOIN ".MAIN_DB_PREFIX."medrecord AS mr ON mr.rowid = b.fk_medrecord AND mr.entity = ".((int) $conf->entity);
 $sql .= " LEFT JOIN ".MAIN_DB_PREFIX."user AS du ON du.rowid = mr.fk_doctor";
-$sql .= " LEFT JOIN ".MAIN_DB_PREFIX."facture AS f ON f.rowid = b.fk_invoice AND f.type = 2 AND f.entity = ".((int) $conf->entity);
+$sql .= " LEFT JOIN (SELECT fk_facture_source AS src, SUM(ABS(total_ttc)) AS refund";
+$sql .= "            FROM ".MAIN_DB_PREFIX."facture";
+$sql .= "            WHERE type = 2 AND fk_facture_source > 0 AND entity = ".((int) $conf->entity);
+$sql .= "            GROUP BY fk_facture_source) AS cr ON cr.src = b.fk_invoice";
 $sql .= clinicpayReportWhere($dateFrom, $dateTo, $searchFkDoctor, $searchChannel);
 $sql .= " GROUP BY ".$groupBy." ORDER BY ".$orderBy;
 

@@ -73,7 +73,7 @@ class ClinicPayBundle extends CommonObject
 	{
 		$prefix = $this->db->prefix();
 		$sql = "SELECT rowid, entity, name, status, note, fk_user_creat, date_creation";
-		$sql .= " FROM ".$prefix."clinicpay_bundle WHERE rowid = ".((int) $id);
+		$sql .= " FROM ".$prefix."clinicpay_bundle WHERE rowid = ".((int) $id)." AND status <> 9";
 		$resql = $this->db->query($sql);
 		if (!$resql) {
 			$this->error = $this->db->lasterror();
@@ -198,7 +198,7 @@ class ClinicPayBundle extends CommonObject
 	}
 
 	/**
-	 * Delete head + lines.
+	 * Soft delete: keep head + lines, mark status 9 so the trace survives.
 	 *
 	 * @return	int		1 ok, <0 error
 	 */
@@ -208,14 +208,12 @@ class ClinicPayBundle extends CommonObject
 			return -1;
 		}
 		$prefix = $this->db->prefix();
-		$this->db->begin();
-		if (!$this->db->query("DELETE FROM ".$prefix."clinicpay_bundle_line WHERE fk_bundle = ".((int) $this->rowid))
-			|| !$this->db->query("DELETE FROM ".$prefix."clinicpay_bundle WHERE rowid = ".((int) $this->rowid))) {
+		$sql = "UPDATE ".$prefix."clinicpay_bundle SET status = 9 WHERE rowid = ".((int) $this->rowid);
+		if (!$this->db->query($sql)) {
 			$this->error = $this->db->lasterror();
-			$this->db->rollback();
 			return -1;
 		}
-		$this->db->commit();
+		$this->status = 9;
 		return 1;
 	}
 
@@ -256,7 +254,7 @@ class ClinicPayBundle extends CommonObject
 		$sql = "SELECT t.rowid, t.name, t.status, t.note, COUNT(l.rowid) AS nlines";
 		$sql .= " FROM ".$prefix."clinicpay_bundle t";
 		$sql .= " LEFT JOIN ".$prefix."clinicpay_bundle_line l ON l.fk_bundle = t.rowid";
-		$sql .= " WHERE t.entity = ".getDolGlobalInt('entity', 1);
+		$sql .= " WHERE t.entity = ".getDolGlobalInt('entity', 1)." AND t.status <> 9";
 		if ($activeOnly === 1) {
 			$sql .= " AND t.status = 1";
 		}
