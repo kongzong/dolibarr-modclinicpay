@@ -292,9 +292,12 @@ $form = new Form($db);
 // ---- Filter form --------------------------------------------------------------
 print '<form method="GET" action="'.$_SERVER["PHP_SELF"].'" name="formreportfilter">';
 print '<input type="hidden" name="token" value="'.newToken().'">';
+// The filter row packs date pickers and two selects; on a phone the table is
+// wider than the viewport, so it scrolls inside its own container instead of
+// pushing the whole page sideways.
+print '<div class="div-table-responsive-no-min">';
 print '<table class="noborder centpercent">';
-print '<tr class="liste_titre"><td colspan="4">'.$langs->trans("ClinicPayReportFilter").'</td></tr>';
-print '<tr>';
+print '<tr class="liste_titre"><td colspan="4">'.$langs->trans("ClinicPayReportFilter").'</td></tr>';print '<tr>';
 print '<td class="nowrap">'.$langs->trans("ClinicPayReportDate").'</td><td class="nowrap">';
 print $form->selectDate($dateFrom, 'search_from', 0, 0, 1, '', 1, 0).' - ';
 print $form->selectDate($dateTo, 'search_to', 0, 0, 1, '', 1, 0);
@@ -336,6 +339,7 @@ print ' <button type="submit" class="button" name="action" value="exportdetail">
 print ' <button type="submit" class="button" name="button_removefilter" value="1">'.$langs->trans("ClearFilter").'</button>';
 print '</td></tr>';
 print '</table>';
+print '</div>';
 print '</form>';
 
 // ---- Aggregate table ----------------------------------------------------------
