@@ -48,7 +48,7 @@ dol_include_once('/clinicpay/class/paybill.class.php');
  * @var User $user
  */
 
-$langs->loadLangs(array("patient@patient", "clinicpay@clinicpay"));
+$langs->loadLangs(array("companies", "patient@patient", "clinicpay@clinicpay"));
 
 if (!$user->hasRight('clinicpay', 'read')) {
 	accessforbidden();
@@ -101,6 +101,55 @@ if ($result === null) {
 }
 $total = $result['total'];
 $rows = $result['rows'];
+
+// ---- CSV export of the full filtered list (must run before any output) --------
+$action = GETPOST('action', 'aZ09');
+if ($action === 'export') {
+	$all = $dao->search(array('q' => $search, 'status' => $status, 'from' => $dateFrom, 'to' => $dateTo, 'fk_patient' => $searchFkPatient, 'channel' => $searchChannel, 'date_field' => $dateField, 'fapiao' => $searchFapiao), 0, 0);
+	if ($all === null) {
+		dol_print_error($db, $dao->error);
+		exit;
+	}
+	$csvName = 'clinicpay_bills_'.dol_print_date(dol_now(), '%Y%m%d%H%M%S');
+	$csvDir = empty($conf->clinicpay->dir_temp) ? DOL_DOCUMENT_ROOT.'/dolibarr_documents/temp/' : $conf->clinicpay->dir_temp;
+	$csvFile = $csvDir.'/'.$csvName.'.csv';
+	$fh = fopen($csvFile, 'w');
+	if ($fh) {
+		fwrite($fh, "\xEF\xBB\xBF");
+		fputcsv($fh, array(
+			$langs->trans('ClinicPayRef'),
+			$langs->trans('PatientCardNo'),
+			$langs->trans('ThirdPartyName'),
+			$langs->trans('ClinicPayBillAmount'),
+			$langs->trans('ClinicPayBillChannel'),
+			$langs->trans('ClinicPayFapiaoPayDate'),
+			$langs->trans('ClinicPayFapiaoNo'),
+			$langs->trans('Status'),
+		));
+		foreach ($all['rows'] as $r) {
+			$dateVal = $dateField === 'date_pay' ? $r->date_pay : $r->date_creation;
+			fputcsv($fh, array(
+				(string) $r->ref,
+				(string) $r->card_no,
+				(string) $r->patient_name,
+				number_format((float) $r->amount_total, 2, '.', ''),
+				clinicpay_channel_label((string) $r->channel),
+				$dateVal ? dol_print_date($db->jdate($dateVal), 'dayhour') : '',
+				(string) $r->fapiao_no,
+				clinicpay_bill_status_label((string) $r->status),
+			));
+		}
+		fclose($fh);
+		top_httphead('text/csv; charset=UTF-8');
+		header('Content-Description: File Transfer');
+		header('Content-Disposition: attachment; filename="'.$csvName.'.csv"');
+		header('Cache-Control: Public, must-revalidate');
+		header('Pragma: public');
+		readfile($csvFile);
+		exit;
+	}
+	setEventMessages($langs->trans('ClinicPayReportExportFailed'), null, 'errors');
+}
 
 llxHeader('', $langs->trans("ClinicPayBillList"));
 
@@ -175,6 +224,7 @@ print '<td class="liste_titre center">'.$form->selectarray('search_status', $sta
 print '<td class="liste_titre center maxwidthsearch">';
 print '<button type="submit" class="liste_titre button_search reposition" name="button_search" value="x"><span class="fa fa-search"></span></button>';
 print '<button type="submit" class="liste_titre button_removefilter reposition" name="button_removefilter" value="x"><span class="fa fa-remove"></span></button>';
+print '<button type="submit" class="liste_titre button_export reposition" name="action" value="export" title="'.dol_escape_htmltag($langs->trans('ClinicPayReportExport')).'"><span class="fa fa-file-export"></span></button>';
 print '</td></tr>';
 
 print '<tr class="liste_titre">';

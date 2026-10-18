@@ -210,3 +210,5 @@ ClinicPayBundleDelete=Delete bundle
 ClinicPayBundleConfirmDelete=Delete bundle %s? This cannot be undone
 ClinicPayBundleErrName=Bundle name is required
 ClinicPayBundleErrLines=Add at least one valid line (pick a product with qty > 0)
+
+ClinicPayReportExportDetail=Export details

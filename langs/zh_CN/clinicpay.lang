@@ -210,3 +210,5 @@ ClinicPayBundleDelete=删除套餐
 ClinicPayBundleConfirmDelete=确认删除套餐 %s ？删除后不可恢复
 ClinicPayBundleErrName=请填写套餐名称
 ClinicPayBundleErrLines=请至少添加一行有效明细（选择商品且数量大于 0）
+
+ClinicPayReportExportDetail=导出明细
