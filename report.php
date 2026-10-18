@@ -350,6 +350,11 @@ print '<span class="badge badge-status9">'.$langs->trans("ClinicPayReportAmountP
 print '<span class="badge badge-status8">'.$langs->trans("ClinicPayReportAmountRefund").' '.price($totals['amount_refund']).'</span> ';
 print '<span class="badge badge-status1">'.$langs->trans("ClinicPayReportAmountNet").' '.price($totals['amount_net']).'</span>';
 print '</div>';
+// Reconciliation semantics: the clinic pays first and collects the medicine
+// later, so "paid" is a payment state only -- it does not imply the goods
+// left the building. Anyone comparing this report against dispensing totals
+// must expect a gap.
+print '<div class="opacitymedium paddingbottom">'.$langs->trans("ClinicPayReportPayHint").'</div>';
 
 $dimLabelKey = $dim === 'doctor' ? 'ClinicPayReportDoctor' : ($dim === 'channel' ? 'ClinicPayBillChannel' : 'ClinicPayReportColDate');
 print '<div class="div-table-responsive-no-min"><table class="noborder centpercent">';

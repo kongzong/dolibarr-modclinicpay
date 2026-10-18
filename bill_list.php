@@ -72,6 +72,10 @@ if ($searchChannel === '-1') {
 // Tax invoice number, free text: a value filters on it, an empty one (the normal
 // case) applies no filter at all.
 $searchFapiao = trim(GETPOST('search_fapiao', 'alphanohtml'));
+// "Paid but not dispensed": set by the workbench alert link (or the checkbox
+// below). The day threshold itself lives in CLINICPAY_UNDISPENSED_DAYS so the
+// list and the alert always agree.
+$searchUndispensed = GETPOST('search_undispensed', 'alpha') ? 1 : 0;
 // Charts revenue on date_pay; a drill-down from the dashboard says so here so
 // the figures the user clicked on are the ones they get back.
 // 'aZ' would strip the underscore, so alphanohtml keeps "date_pay" intact.
@@ -94,7 +98,7 @@ if ($page < 0) {
 $offset = $limit * $page;
 
 $dao = new Paybill($db);
-$result = $dao->search(array('q' => $search, 'status' => $status, 'from' => $dateFrom, 'to' => $dateTo, 'fk_patient' => $searchFkPatient, 'channel' => $searchChannel, 'date_field' => $dateField, 'fapiao' => $searchFapiao), $limit, $offset);
+$result = $dao->search(array('q' => $search, 'status' => $status, 'from' => $dateFrom, 'to' => $dateTo, 'fk_patient' => $searchFkPatient, 'channel' => $searchChannel, 'date_field' => $dateField, 'fapiao' => $searchFapiao, 'undispensed' => $searchUndispensed), $limit, $offset);
 if ($result === null) {
 	dol_print_error($db, $dao->error);
 	exit;
@@ -105,7 +109,7 @@ $rows = $result['rows'];
 // ---- CSV export of the full filtered list (must run before any output) --------
 $action = GETPOST('action', 'aZ09');
 if ($action === 'export') {
-	$all = $dao->search(array('q' => $search, 'status' => $status, 'from' => $dateFrom, 'to' => $dateTo, 'fk_patient' => $searchFkPatient, 'channel' => $searchChannel, 'date_field' => $dateField, 'fapiao' => $searchFapiao), 0, 0);
+	$all = $dao->search(array('q' => $search, 'status' => $status, 'from' => $dateFrom, 'to' => $dateTo, 'fk_patient' => $searchFkPatient, 'channel' => $searchChannel, 'date_field' => $dateField, 'fapiao' => $searchFapiao, 'undispensed' => $searchUndispensed), 0, 0);
 	if ($all === null) {
 		dol_print_error($db, $dao->error);
 		exit;
@@ -176,6 +180,9 @@ if ($searchChannel !== '') {
 if ($searchFapiao !== '') {
 	$param .= '&search_fapiao='.urlencode($searchFapiao);
 }
+if ($searchUndispensed) {
+	$param .= '&search_undispensed=1';
+}
 if ($dateField === 'date_pay') {
 	$param .= '&date_field=date_pay';
 }
@@ -221,7 +228,8 @@ print '<td class="liste_titre"></td>';
 print '<td class="liste_titre">'.$form->selectarray('search_channel', $channelOptions, $searchChannel, -1, 0, 0, '', 0, 0, 0, '', 'maxwidth100').'</td>';
 print '<td class="liste_titre center nowrap">'.$form->selectDate($dateFrom, 'search_from', 0, 0, 1, '', 1, 0).' - '.$form->selectDate($dateTo, 'search_to', 0, 0, 1, '', 1, 0).'</td>';
 print '<td class="liste_titre center"><input type="text" name="search_fapiao" class="minwidth100" value="'.dol_escape_htmltag($searchFapiao).'"></td>';
-print '<td class="liste_titre center">'.$form->selectarray('search_status', $statusOptions, $status >= 0 ? (string) $status : '', -1, 0, 0, '', 0, 0, 0, '', 'maxwidth100').'</td>';
+print '<td class="liste_titre center">'.$form->selectarray('search_status', $statusOptions, $status >= 0 ? (string) $status : '', -1, 0, 0, '', 0, 0, 0, '', 'maxwidth100');
+print '<div class="nowrap"><input type="checkbox" name="search_undispensed" value="1"'.($searchUndispensed ? ' checked' : '').'> <span class="small">'.dol_escape_htmltag($langs->trans('ClinicPaySearchUndispensed')).'</span></div></td>';
 print '<td class="liste_titre center maxwidthsearch">';
 print '<button type="submit" class="liste_titre button_search reposition" name="button_search" value="x"><span class="fa fa-search"></span></button>';
 print '<button type="submit" class="liste_titre button_removefilter reposition" name="button_removefilter" value="x"><span class="fa fa-remove"></span></button>';

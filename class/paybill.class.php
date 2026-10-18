@@ -239,6 +239,19 @@ class Paybill extends CommonObject
 		if (!empty($f['fapiao_empty'])) {
 			$where .= " AND (b.fapiao_no IS NULL OR b.fapiao_no = '')";
 		}
+		// "Paid but not dispensed" filter: the clinic pays first and collects
+		// the medicine later, so a paid bill with a pending sheet is a normal
+		// intermediate state -- but one sitting there for days deserves
+		// attention. The day threshold comes from CLINICPAY_UNDISPENSED_DAYS so
+		// this filter and the workbench alert show exactly the same rows.
+		if (!empty($f['undispensed'])) {
+			$days = max(0, getDolGlobalInt('CLINICPAY_UNDISPENSED_DAYS', 1));
+			$pending = defined('PHARMACY_STATUS_PENDING') ? PHARMACY_STATUS_PENDING : 0;
+			$where .= " AND EXISTS (SELECT 1 FROM ".$this->db->prefix()."clinicpay_bill_line AS ul";
+			$where .= " INNER JOIN ".$this->db->prefix()."pharmacy_dispense AS ud ON ud.rowid = ul.fk_dispense";
+			$where .= " WHERE ul.fk_bill = b.rowid AND ud.status = ".$pending.")";
+			$where .= " AND b.date_pay <= DATE_SUB(CURDATE(), INTERVAL ".$days." DAY)";
+		}
 
 		$sql = "SELECT COUNT(*) as n".$from.$where;
 		$resql = $this->db->query($sql);
