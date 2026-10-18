@@ -212,3 +212,5 @@ ClinicPayBundleErrName=Bundle name is required
 ClinicPayBundleErrLines=Add at least one valid line (pick a product with qty > 0)
 
 ClinicPayReportExportDetail=Export details
+
+ClinicPayBundleSelect=Pick a bundle...

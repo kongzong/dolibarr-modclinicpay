@@ -212,3 +212,5 @@ ClinicPayBundleErrName=请填写套餐名称
 ClinicPayBundleErrLines=请至少添加一行有效明细（选择商品且数量大于 0）
 
 ClinicPayReportExportDetail=导出明细
+
+ClinicPayBundleSelect=选择套餐…

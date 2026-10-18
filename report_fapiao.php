@@ -158,7 +158,7 @@ $db->free($resql);
 
 // ---- CSV (must run before any output) ----------------------------------------
 if ($action === 'export') {
-	$csvName = 'clinicpay_fapiao_'.dol_now('%Y%m%d%H%M%S');
+	$csvName = 'clinicpay_fapiao_'.dol_print_date(dol_now(), '%Y%m%d%H%M%S');
 	$csvDir = empty($conf->clinicpay->dir_temp) ? DOL_DOCUMENT_ROOT.'/dolibarr_documents/temp/' : $conf->clinicpay->dir_temp;
 	$csvFile = $csvDir.'/'.$csvName.'.csv';
 	$fh = fopen($csvFile, 'w');
