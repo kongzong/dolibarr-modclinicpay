@@ -135,6 +135,12 @@ class ClinicPayBundle extends CommonObject
 			$this->error = 'BadValueForName';
 			return -1;
 		}
+		if (dol_strlen(trim((string) $this->name)) > 128) {
+			// llx_clinicpay_bundle.name is varchar(128): catch it here so the user
+			// gets a readable message instead of MySQL "Data too long".
+			$this->error = 'ClinicPayBundleErrNameLong';
+			return -1;
+		}
 		$prefix = $this->db->prefix();
 		$this->db->begin();
 
@@ -168,6 +174,10 @@ class ClinicPayBundle extends CommonObject
 	{
 		if ($this->rowid <= 0 || trim((string) $this->name) === '') {
 			$this->error = 'BadValueForIdOrName';
+			return -1;
+		}
+		if (dol_strlen(trim((string) $this->name)) > 128) {
+			$this->error = 'ClinicPayBundleErrNameLong';
 			return -1;
 		}
 		$prefix = $this->db->prefix();

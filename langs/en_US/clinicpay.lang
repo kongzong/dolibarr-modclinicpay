@@ -214,3 +214,5 @@ ClinicPayBundleErrLines=Add at least one valid line (pick a product with qty > 0
 ClinicPayReportExportDetail=Export details
 
 ClinicPayBundleSelect=Pick a bundle...
+
+ClinicPayBundleErrNameLong=Bundle name must be 128 characters or less

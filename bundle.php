@@ -107,7 +107,7 @@ if (($action == 'save' || $action == 'confirm_delete') && $canWrite) {
 				header("Location: ".$basePage.'?saved=1');
 				exit;
 			}
-			$errors[] = $object->error;
+			$errors[] = $langs->trans((string) $object->error);
 		}
 	} elseif ($action == 'save') {
 		header("Location: ".$basePage);
@@ -127,14 +127,19 @@ if ($action == 'create' && !$id) {
 	$object->status = 1;
 }
 
+// Messages must be queued BEFORE llxHeader(): it renders the message area, so
+// a setEventMessages() call after it would only show up on the next page.
 llxHeader('', $langs->trans("ClinicPayBundle"));
 
 print load_fiche_titre($langs->trans("ClinicPayBundle"), '', 'fa-boxes');
 
+// Validation errors are printed inline: setEventMessages() after llxHeader()
+// only surfaces on the next page load, so a rejected save looked like a silent
+// no-op (nothing saved, no message).
 foreach ($errors as $e) {
-	setEventMessages($e, null, 'errors');
+	print '<div class="error" style="padding:6px 10px;">'.dol_escape_htmltag($e).'</div>';
 }
-if (GETPOST('saved', 'int') === 1) {
+if (GETPOSTINT('saved') === 1) {
 	print '<div class="ok" style="padding:6px 10px;">'.dol_escape_htmltag($langs->trans("RecordSaved")).'</div>';
 }
 

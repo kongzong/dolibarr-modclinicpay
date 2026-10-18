@@ -214,3 +214,5 @@ ClinicPayBundleErrLines=请至少添加一行有效明细（选择商品且数�
 ClinicPayReportExportDetail=导出明细
 
 ClinicPayBundleSelect=选择套餐…
+
+ClinicPayBundleErrNameLong=套餐名称不能超过 128 个字符
