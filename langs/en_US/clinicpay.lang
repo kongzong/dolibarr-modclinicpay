@@ -222,3 +222,5 @@ ClinicDashAlertUndispensed=Paid but not dispensed for over %s day(s): %s bill(s)
 ClinicPayReportPayHint=Reconciliation note: this clinic charges first and dispenses later. "Paid" only means the payment was collected, not that the medicine/treatment was delivered -- expect a legitimate gap when reconciling against dispensing data.
 
 ClinicPayReportDraftDate=Not charged (draft)
+ClinicPayBillProductFilter=Filter products (type ref/name)
+ClinicPayBillEditorTotal=Estimated total

@@ -98,6 +98,7 @@ if ($action == 'create') {
 		accessforbidden($langs->trans("ErrorRecordNotFound"));
 	}
 	$products = clinicpay_product_options($db);
+	$productPrices = clinicpay_product_prices($db);
 
 	// Dispense linkage: pre-fill lines and anchor the visit (medrecord)
 	$dispensePrefill = array();
@@ -192,8 +193,9 @@ if ($action == 'create') {
 		}
 	}
 
+	print '<div class="paddingbottom"><input type="text" id="bill_product_filter" class="minwidth300" placeholder="'.dol_escape_htmltag($langs->trans('ClinicPayBillProductFilter')).'"></div>';
 	print '<div class="div-table-responsive-no-min"><table id="bill_editor" class="noborder centpercent">';
-	print '<tr class="liste_titre"><th>#</th><th>'.$langs->trans("ClinicPayBillProduct").'</th><th class="right" style="width:120px">'.$langs->trans("ClinicPayBillQty").'</th></tr>';
+	print '<tr class="liste_titre"><th>#</th><th>'.$langs->trans("ClinicPayBillProduct").'</th><th class="right" style="width:120px">'.$langs->trans("ClinicPayBillQty").'</th><th class="right" style="width:120px">'.$langs->trans("ClinicPayBillSubtotal").'</th></tr>';
 	foreach ($editorRows as $i => $row) {
 		$sel = (int) $row['fk_product'];
 		$qtyVal = !empty($row['qty']) ? price2num((float) $row['qty'], 'MS') : '';
@@ -215,9 +217,11 @@ if ($action == 'create') {
 		}
 		print '</td>';
 		print '<td class="right"><input class="flat right width75" style="width:70px;" type="text" name="qty['.$i.']" value="'.$qtyVal.'"></td>';
+		print '<td class="right subtotal-cell">'.price(0).'</td>';
 		print '</tr>';
 	}
 	print '</table></div>';
+	print '<div class="right paddingbottom"><strong>'.$langs->trans("ClinicPayBillEditorTotal").'：<span id="bill_editor_total">'.price(0).'</span></strong></div>';
 
 	print '<div class="opacitymedium paddingbottom">'.$langs->trans("ClinicPayBillSnapshotNote").'</div>';
 
@@ -260,8 +264,8 @@ $(function() {
 				}
 				tr.find("input[name^=\'fk_prescription\']").remove();
 				tr.find("input[name^=\'fk_dispense\']").remove();
-				tr.find("select[name^=\'fk_product\']").val(l.fk_product);
-				tr.find("input[name^=\'qty\']").val(l.qty);
+			tr.find("select[name^=\'fk_product\']").val(l.fk_product).trigger(\'change\');
+			tr.find("input[name^=\'qty\']").val(l.qty).trigger(\'change\');
 			});
 			renumberEditor();
 		});
@@ -270,6 +274,40 @@ $(function() {
 </script>';
 		}
 	}
+
+	// Live subtotal + product filter for the charge editor. recompute() is
+	// global so the bundle picker above can call it after filling rows.
+	print '<script type="text/javascript">
+	function clinicpayRecomputeBill(tr) {
+		var pid = parseInt(tr.find("select[name^=\'fk_product\']").val(), 10) || 0;
+		var qty = parseFloat(tr.find("input[name^=\'qty\']").val()) || 0;
+		var sub = (clinicpayProductPrices[pid] ? clinicpayProductPrices[pid] : 0) * qty;
+		tr.find(".subtotal-cell").text(sub.toFixed(2));
+		var total = 0;
+		$("#bill_editor tr.oddeven").each(function() {
+			var p = parseInt($(this).find("select[name^=\'fk_product\']").val(), 10) || 0;
+			var q = parseFloat($(this).find("input[name^=\'qty\']").val()) || 0;
+			total += (clinicpayProductPrices[p] ? clinicpayProductPrices[p] : 0) * q;
+		});
+		$("#bill_editor_total").text(total.toFixed(2));
+	}
+	$(function() {
+		window.clinicpayProductPrices = '.json_encode($productPrices).';
+		$("#bill_editor").on("change keyup", "select[name^=\'fk_product\'], input[name^=\'qty\']", function() {
+			clinicpayRecomputeBill($(this).closest("tr"));
+		});
+		$("#bill_product_filter").on("keyup", function() {
+			var v = $(this).val().toLowerCase();
+			$("#bill_editor select[name^=\'fk_product\']").each(function() {
+				$(this).find("option").each(function() {
+					if ($(this).val() === "0") { $(this).show(); return; }
+					$(this).toggle($(this).text().toLowerCase().indexOf(v) > -1);
+				});
+			});
+		});
+		$("#bill_editor tr.oddeven").each(function() { clinicpayRecomputeBill($(this)); });
+	});
+	</script>';
 
 	print $form->buttonsSaveCancel("ClinicPayBillNew", "Cancel");
 	print '</form>';
@@ -408,7 +446,7 @@ if ($dao->channel_ref !== '') {
 	print ' <span class="opacitymedium">('.dol_escape_htmltag($dao->channel_ref).')</span>';
 }
 print '</td>';
-print '<td>'.$langs->trans("ClinicPayBillPayDate").'</td><td>'.($dao->date_pay ? dol_print_date($dao->date_pay, 'dayhour') : '').'</td></tr>';
+print '<td>'.$langs->trans("ClinicPayBillPayDate").'</td><td>'.($dao->date_pay ? dol_print_date($dao->date_pay, '%Y-%m-%d %H:%M') : '').'</td></tr>';
 print '<tr><td>'.$langs->trans("ClinicPayInvoice").'</td><td>';
 if ((int) $dao->fk_invoice > 0) {
 	print '<a href="'.DOL_URL_ROOT.'/compta/facture/card.php?id='.((int) $dao->fk_invoice).'">'.dol_escape_htmltag($langs->trans("Invoice").' #'.(int) $dao->fk_invoice).'</a>';
@@ -423,7 +461,7 @@ if ($isPaid) {
 	print '<span class="opacitymedium">-</span>';
 }
 print '</td></tr>';
-print '<tr><td>'.$langs->trans("DateCreation").'</td><td colspan="3">'.dol_print_date($dao->date_creation, 'dayhour').'</td></tr>';
+print '<tr><td>'.$langs->trans("DateCreation").'</td><td colspan="3">'.dol_print_date($dao->date_creation, '%Y-%m-%d %H:%M').'</td></tr>';
 print '<tr><td>'.$langs->trans("ClinicPayFapiaoNo").'</td><td colspan="3">';
 if ((string) $dao->fapiao_no !== '') {
 	print '<span class="opacitymedium">'.$langs->trans("ClinicPayFapiaoRegistered").'</span> '.dol_escape_htmltag($dao->fapiao_no);

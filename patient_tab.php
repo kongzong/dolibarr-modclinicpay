@@ -94,7 +94,7 @@ if ($tab === 'bills') {
 		print '<tr class="oddeven">';
 		print '<td><a href="'.dol_buildpath('/clinicpay/bill.php', 1).'?id='.(int) $r->rowid.'">'.dol_escape_htmltag($r->ref).'</a></td>';
 		print '<td class="right">'.price($r->amount_total).'</td>';
-		print '<td class="center">'.dol_print_date($db->jdate($r->date_creation), 'dayhour').'</td>';
+		print '<td class="center">'.dol_print_date($db->jdate($r->date_creation), '%Y-%m-%d %H:%M').'</td>';
 		$medHtml = '<span class="opacitymedium">—</span>';
 		if (!empty($r->fk_medrecord)) {
 			$medLabel = ($r->medrecord_ref !== null && $r->medrecord_ref !== '') ? $r->medrecord_ref : '#'.(int) $r->fk_medrecord;

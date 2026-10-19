@@ -255,6 +255,26 @@ function clinicpay_product_options($db, $limit = 500)
 }
 
 /**
+ * Product unit prices (HT) keyed by rowid, for the bill editor live subtotal.
+ *
+ * @param	DoliDB	$db
+ * @return	array<int,float>
+ */
+function clinicpay_product_prices($db)
+{
+	$out = array();
+	$sql = "SELECT rowid, price FROM ".$db->prefix()."product ORDER BY rowid";
+	$resql = $db->query($sql);
+	if ($resql) {
+		while ($o = $db->fetch_object($resql)) {
+			$out[(int) $o->rowid] = (float) $o->price;
+		}
+		$db->free($resql);
+	}
+	return $out;
+}
+
+/**
  * Native payment mode code (llx_c_paiement) of a clinic channel.
  *
  * @param	string	$channel	CASH / SCAN

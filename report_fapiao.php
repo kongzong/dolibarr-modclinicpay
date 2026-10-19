@@ -182,7 +182,7 @@ if ($action === 'export') {
 				(string) $r->patient_name,
 				number_format((float) $r->amount_total, 2, '.', ''),
 				(string) $r->channel,
-				$r->date_pay ? dol_print_date($db->jdate($r->date_pay), 'dayhour') : '',
+				$r->date_pay ? dol_print_date($db->jdate($r->date_pay), '%Y-%m-%d %H:%M') : '',
 				(string) $r->fapiao_no,
 				clinicpay_bill_status_label((string) $r->status),
 			));
@@ -314,7 +314,7 @@ foreach ($details as $r) {
 	print '<td>'.dol_escape_htmltag((string) $r->patient_name).'</td>';
 	print '<td class="right">'.price((float) $r->amount_total).'</td>';
 	print '<td class="center">'.dol_escape_htmltag(clinicpay_channel_label((string) $r->channel)).'</td>';
-	print '<td class="center nowrap">'.($r->date_pay ? dol_print_date($db->jdate($r->date_pay), 'dayhour') : '').'</td>';
+	print '<td class="center nowrap">'.($r->date_pay ? dol_print_date($db->jdate($r->date_pay), '%Y-%m-%d %H:%M') : '').'</td>';
 	if ($fapiao === '') {
 		print '<td class="center error">'.$langs->trans("ClinicPayFapiaoMissing").'</td>';
 	} else {

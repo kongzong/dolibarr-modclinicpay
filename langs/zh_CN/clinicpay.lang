@@ -222,3 +222,5 @@ ClinicDashAlertUndispensed=已收费超 %s 天仍未发药：%s 单
 ClinicPayReportPayHint=口径说明：诊所为先收费后发药流程，「已收费」仅代表收款完成，不代表药品/治疗已交付；与发药数据对账时两者存在合理差额。
 
 ClinicPayReportDraftDate=未收款（草稿）
+ClinicPayBillProductFilter=筛选药品（输入编码/名称）
+ClinicPayBillEditorTotal=预估合计

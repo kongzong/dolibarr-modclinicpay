@@ -138,7 +138,7 @@ if ($action === 'export') {
 				(string) $r->patient_name,
 				number_format((float) $r->amount_total, 2, '.', ''),
 				clinicpay_channel_label((string) $r->channel),
-				$dateVal ? dol_print_date($db->jdate($dateVal), 'dayhour') : '',
+				$dateVal ? dol_print_date($db->jdate($dateVal), '%Y-%m-%d %H:%M') : '',
 				(string) $r->fapiao_no,
 				clinicpay_bill_status_label((string) $r->status),
 			));
@@ -259,7 +259,7 @@ foreach ($rows as $r) {
 	print '<td><a href="'.dol_buildpath('/patient/card.php', 1).'?id='.(int) $r->fk_patient.'">'.dol_escape_htmltag($r->patient_name).'</a></td>';
 	print '<td class="right">'.price($r->amount_total).'</td>';
 	print '<td class="center">'.dol_escape_htmltag(clinicpay_channel_label($r->channel)).'</td>';
-	print '<td class="center">'.dol_print_date($db->jdate($r->date_creation), 'dayhour').'</td>';
+	print '<td class="center">'.dol_print_date($db->jdate($r->date_creation), '%Y-%m-%d %H:%M').'</td>';
 	print '<td class="center">'.((string) $r->fapiao_no !== '' ? dol_escape_htmltag($r->fapiao_no) : '<span class="opacitymedium">-</span>').'</td>';
 	print '<td class="center">'.clinicpay_bill_status_badge($r->status).'</td>';
 	print '<td></td>';

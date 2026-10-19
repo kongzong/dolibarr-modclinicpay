@@ -330,7 +330,7 @@ if ($action !== 'create') {
 				$userNames[$uid] = $u->fetch($uid) > 0 ? $u->getFullName($langs) : '';
 			}
 			print '<tr class="oddeven">';
-			print '<td class="center">'.dol_print_date($db->jdate($lg->date_creation), 'dayhour').'</td>';
+			print '<td class="center">'.dol_print_date($db->jdate($lg->date_creation), '%Y-%m-%d %H:%M').'</td>';
 			print '<td>'.dol_escape_htmltag(isset($logLabels[$lg->op]) ? $langs->trans($logLabels[$lg->op]) : $lg->op).'</td>';
 			print '<td class="right">'.((int) $lg->count_delta !== 0 ? ((int) $lg->count_delta > 0 ? '+' : '').((int) $lg->count_delta) : '').'</td>';
 			print '<td class="right">'.((float) $lg->value_delta != 0 ? ($lg->value_delta > 0 ? '+' : '').price($lg->value_delta) : '').'</td>';

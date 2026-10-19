@@ -261,7 +261,7 @@ if ($action === 'exportdetail') {
 				(string) $r->patient_name,
 				(string) $r->doctor_label,
 				(string) $r->channel,
-				$r->date_pay ? dol_print_date($db->jdate($r->date_pay), 'dayhour') : '',
+				$r->date_pay ? dol_print_date($db->jdate($r->date_pay), '%Y-%m-%d %H:%M') : '',
 				number_format((float) $r->amount_total, 2, '.', ''),
 				clinicpay_bill_status_label((string) $r->status),
 			));
@@ -468,7 +468,7 @@ foreach ($details as $r) {
 	print '<td>'.dol_escape_htmltag((string) $r->patient_name).'</td>';
 	print '<td>'.dol_escape_htmltag((string) $r->doctor_label).'</td>';
 	print '<td class="center">'.dol_escape_htmltag((string) $r->channel).'</td>';
-	print '<td class="center nowrap">'.($r->date_pay ? dol_print_date($db->jdate($r->date_pay), 'dayhour') : '').'</td>';
+	print '<td class="center nowrap">'.($r->date_pay ? dol_print_date($db->jdate($r->date_pay), '%Y-%m-%d %H:%M') : '').'</td>';
 	print '<td class="right">'.price((float) $r->amount_total).'</td>';
 	print '<td class="center">'.clinicpay_bill_status_badge($r->status).'</td>';
 	print '</tr>';
