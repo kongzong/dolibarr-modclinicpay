@@ -300,8 +300,10 @@ class ClinicPayTest extends \PHPUnit\Framework\TestCase
 		$src = file_get_contents(__DIR__.'/../../class/api_clinicpay.class.php');
 		$this->assertStringContainsString("class Clinicpay extends DolibarrApi", $src);
 		// every endpoint annotation (tab between @url and the verb)
-		$endpoints = array("GET bills", "GET bills/{id}", "POST bills", "POST bills/{id}/confirm",
-			"POST bills/{id}/refund", "GET cards", "GET cards/{id}", "POST cards", "POST cards/{id}/consume");
+		// Routes are class-base + relative @url: class Clinicpay => /clinicpay, so the
+		// public shapes are GET /clinicpay, GET /clinicpay/{id}, ... (Dolibarr convention).
+		$endpoints = array("GET /", "GET {id}", "POST /", "POST {id}/confirm",
+			"POST {id}/refund", "GET cards", "GET cards/{id}", "POST cards", "POST cards/{id}/consume");
 		$annotated = preg_match_all('/@url\s+(.+)/', $src, $m) ? implode("\n", $m[1]) : '';
 		$this->assertGreaterThan(8, count($m[1]), 'endpoint annotations present');
 		foreach ($endpoints as $u) {

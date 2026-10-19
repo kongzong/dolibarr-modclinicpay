@@ -49,7 +49,6 @@ dol_include_once('/patient/lib/patient.lib.php');
 /**
  * API class for ClinicPay module
  *
- * @url     GET /bills
  * @access  protected
  * @class   DolibarrApiAccess {@requires user,external}
  */
@@ -76,7 +75,7 @@ class Clinicpay extends DolibarrApi
 	/**
 	 * List charge bills.
 	 *
-	 * @url	GET bills
+	 * @url	GET /
 	 *
 	 * @param	string	$q				Ref / card no. / patient name
 	 * @param	int		$patient		Patient profile rowid
@@ -117,7 +116,7 @@ class Clinicpay extends DolibarrApi
 	/**
 	 * Get one charge bill with its lines (audited as CLINICPAY_READ).
 	 *
-	 * @url	GET bills/{id}
+	 * @url	GET {id}
 	 *
 	 * @param	int		$id		Bill rowid
 	 * @return	array
@@ -142,7 +141,7 @@ class Clinicpay extends DolibarrApi
 	 *   { "label": "诊金", "price_unit": 30, "vat_rate": 0 }    // custom line
 	 * ] }
 	 *
-	 * @url	POST bills
+	 * @url	POST /
 	 *
 	 * @param	array	$request_data	Body
 	 * @return	array
@@ -175,7 +174,7 @@ class Clinicpay extends DolibarrApi
 	 *
 	 * Body: { "channel": "CASH"|"SCAN", "channel_ref": "..." (SCAN: required) }
 	 *
-	 * @url	POST bills/{id}/confirm
+	 * @url	POST {id}/confirm
 	 *
 	 * @param	int		$id				Bill rowid
 	 * @param	array	$request_data	Body
@@ -215,7 +214,7 @@ class Clinicpay extends DolibarrApi
 	 * The executor must differ from the draft creator unless admin
 	 * (double-person red line -> 409 otherwise).
 	 *
-	 * @url	POST bills/{id}/refund
+	 * @url	POST {id}/refund
 	 *
 	 * @param	int		$id				Bill rowid
 	 * @param	array	$request_data	Body { reason, execute? }
