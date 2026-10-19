@@ -410,7 +410,13 @@ foreach ($aggregates as $r) {
 	$net = (float) $r->amount_paid - (float) $r->amount_refund;
 	$drill = clinicpayReportDrill($dim, $r);
 	print '<tr class="oddeven">';
+	// A draft bill has date_pay = '' (empty string, not NULL): DATE('') yields
+	// NULL, so the group row would render with a blank label. Keep the draft
+	// visible (that is the intent) but name it instead of showing nothing.
 	$label = dol_escape_htmltag((string) $r->dim_label);
+	if ($label === '') {
+		$label = $langs->trans('ClinicPayReportDraftDate');
+	}
 	print '<td class="nowrap">'.($drill !== '' ? '<a href="'.dol_buildpath('/clinicpay/bill_list.php', 1).'?'.$drill.'">'.$label.'</a>' : $label).'</td>';
 	print '<td class="right">'.(int) $r->nb_bill.'</td>';
 	print '<td class="right">'.price((float) $r->amount_all).'</td>';
