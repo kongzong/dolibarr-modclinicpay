@@ -1,5 +1,13 @@
 -- modClinicPay: card movement log (CREATE/CHARGE/CONSUME/REFUND/EXPIRE).
 -- Append-only: rows are never updated or deleted (spec §3.4 / §5.3).
+--
+-- Sign convention (reconciliation contract, mirror in ServiceCard::insertLog):
+--   CREATE / CHARGE = positive intake; CONSUME = POSITIVE consumed amount
+--   (usage quantity, not a negative delta); REFUND = negative (-rest);
+--   EXPIRE = 0.
+-- Reconciliation MUST be per-op:
+--   balance == SUM(delta WHERE op IN (CREATE,CHARGE,REFUND)) - SUM(delta WHERE op = CONSUME)
+-- A plain SUM over all rows does NOT equal the remaining balance.
 
 CREATE TABLE llx_clinicpay_card_log(
 	rowid				integer AUTO_INCREMENT PRIMARY KEY NOT NULL,

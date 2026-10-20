@@ -777,6 +777,17 @@ class ServiceCard extends CommonObject
 	public $bill_id = 0;
 
 	/**
+	 * Append one movement-log row. Sign convention (reconciliation contract,
+	 * mirror in sql/llx_clinicpay_card_log.sql):
+	 *   CREATE / CHARGE -> positive intake delta (money/count received);
+	 *   CONSUME         -> POSITIVE consumed amount (a usage quantity, NOT a
+	 *                      negative delta);
+	 *   REFUND          -> NEGATIVE (-rest) so it nets off the intake;
+	 *   EXPIRE          -> 0.
+	 * Reconciliation therefore MUST be per-op:
+	 *   balance == SUM(delta WHERE op IN (CREATE,CHARGE,REFUND)) - SUM(delta WHERE op = CONSUME).
+	 * A plain SUM over all rows does NOT equal the remaining balance.
+	 *
 	 * @return	void
 	 */
 	private function insertLog($op, $countDelta, $valueDelta, $fkBill, User $user, $note = '')
