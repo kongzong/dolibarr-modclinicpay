@@ -43,6 +43,7 @@ define('CLINICPAY_CARD_VALUE', 'VALUE');
 // ---------------------------------------------------------------- Pay channels
 define('CLINICPAY_CHANNEL_CASH', 'CASH');
 define('CLINICPAY_CHANNEL_SCAN', 'SCAN');
+define('CLINICPAY_CHANNEL_CARD', 'CARD'); // 划卡：用储值卡余额抵扣（不开票）
 
 // ---------------------------------------------------------------- Card log ops
 define('CLINICPAY_LOG_CREATE', 'CREATE');
@@ -137,6 +138,8 @@ function clinicpay_channel_label($channel)
 			return $langs->trans('ClinicPayChannelCash');
 		case CLINICPAY_CHANNEL_SCAN:
 			return $langs->trans('ClinicPayChannelScan');
+		case CLINICPAY_CHANNEL_CARD:
+			return $langs->trans('ClinicPayChannelCard');
 		default:
 			return '';
 	}
@@ -287,6 +290,8 @@ function clinicpay_paiement_code($channel)
 			return 'CASH';
 		case CLINICPAY_CHANNEL_SCAN:
 			return 'CB';
+		case CLINICPAY_CHANNEL_CARD:
+			return 'PRE'; // 仅防御性：划卡部分实际不开票不产生 Paiement
 		default:
 			return '';
 	}

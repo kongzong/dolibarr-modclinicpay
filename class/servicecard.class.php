@@ -393,7 +393,7 @@ class ServiceCard extends CommonObject
 	 * @param	string	$note	Consumer note (treatment context)
 	 * @return	int				1 ok, -2 refused, -1 error
 	 */
-	public function consume(User $user, $amount = 0.0, $note = '')
+	public function consume(User $user, $amount = 0.0, $note = '', $fkBill = null)
 	{
 		global $conf;
 
@@ -456,7 +456,7 @@ class ServiceCard extends CommonObject
 				throw new ClinicPayRefusedException($this->error);
 			}
 
-			$this->insertLog(CLINICPAY_LOG_CONSUME, $this->card_type === CLINICPAY_CARD_COUNT ? 1 : 0, $this->card_type === CLINICPAY_CARD_VALUE ? $amount : 0.0, null, $user, (string) $note);
+			$this->insertLog(CLINICPAY_LOG_CONSUME, $this->card_type === CLINICPAY_CARD_COUNT ? 1 : 0, $this->card_type === CLINICPAY_CARD_VALUE ? $amount : 0.0, $fkBill, $user, (string) $note);
 			patient_audit($this->db, $this->fk_patient, 'CLINICPAY_CARD_CONSUME', $user, array('op' => 'consume', 'ref' => $this->ref, 'card' => $this->id, 'card_type' => $this->card_type, 'count' => $this->card_type === CLINICPAY_CARD_COUNT ? 1 : 0, 'value' => $this->card_type === CLINICPAY_CARD_VALUE ? $amount : 0));
 			$this->db->commit();
 		} catch (ClinicPayRefusedException $e) {
@@ -475,6 +475,173 @@ class ServiceCard extends CommonObject
 			$sql = "UPDATE ".$this->db->prefix()."clinicpay_card SET status = ".CLINICPAY_CARD_USED." WHERE rowid = ".((int) $this->id)." AND status = ".CLINICPAY_CARD_VALID;
 			$this->query($sql);
 			$this->status = CLINICPAY_CARD_USED;
+		}
+		return 1;
+	}
+
+	// ----------------------------------------------------------------- //
+	// 就诊级扣卡（收费划卡）helpers                                       //
+	// ----------------------------------------------------------------- //
+
+	/**
+	 * Settle a charge bill by deducting $amount from the patient's VALUE
+	 * (储值) cards, oldest valid card first, spanning across cards until the
+	 * full amount is covered. Each deduction is one atomic consume() with
+	 * fk_bill = $billId, so the card movement log stays linked to the bill
+	 * and the reconciliation formula keeps holding.
+	 *
+	 * @param	DoliDB	$db			Database handler
+	 * @param	User	$user		Acting user (consume permission)
+	 * @param	int		$fkPatient	Patient profile rowid
+	 * @param	float	$amount		Amount to deduct (must be > 0)
+	 * @param	int		$billId		Charge bill rowid (links the CONSUME logs)
+	 * @param	string	$note		Note written on each CONSUME log
+	 * @return	int				1 ok, -2 refused (shortage/refused), -1 error
+	 */
+	public static function payBillAmount($db, $user, $fkPatient, $amount, $billId, $note = '')
+	{
+		$amount = price2num((float) $amount, 'MT');
+		if ($amount <= 0 || $billId <= 0 || $fkPatient <= 0) {
+			return -2;
+		}
+		$grace = (int) getDolGlobalInt('CLINICPAY_CARD_GRACE_DAYS');
+		$sql = "SELECT rowid, total_value, used_value FROM ".$db->prefix()."clinicpay_card";
+		$sql .= " WHERE fk_patient = ".((int) $fkPatient)." AND card_type = '".CLINICPAY_CARD_VALUE."' AND status = ".CLINICPAY_CARD_VALID;
+		$sql .= " AND (date_end IS NULL OR date_end >= DATE_SUB(CURDATE(), INTERVAL ".max(0, $grace)." DAY))";
+		$sql .= " ORDER BY rowid ASC";
+		$res = $db->query($sql);
+		if (!$res) {
+			return -1;
+		}
+		$cards = array();
+		while ($o = $db->fetch_object($res)) {
+			$cards[] = $o;
+		}
+		$remaining = $amount;
+		$db->begin();
+		try {
+			foreach ($cards as $o) {
+				if ($remaining <= 0.005) {
+					break;
+				}
+				$avail = price2num((float) $o->total_value - (float) $o->used_value, 'MT');
+				if ($avail <= 0) {
+					continue;
+				}
+				$take = $avail < $remaining ? $avail : $remaining;
+				$take = price2num($take, 'MT');
+				$c = new ServiceCard($db);
+				if ($c->fetch((int) $o->rowid) <= 0) {
+					continue;
+				}
+				$rc = $c->consume($user, $take, (string) $note, (int) $billId);
+				if ($rc < 0) {
+					throw new ClinicPayRefusedException('card consume failed');
+				}
+				$remaining = price2num($remaining - $take, 'MT');
+			}
+			if ($remaining > 0.005) {
+				throw new ClinicPayRefusedException('ClinicPayErrCardShortage');
+			}
+			$db->commit();
+		} catch (ClinicPayRefusedException $e) {
+			while (property_exists($db, 'transaction_opened') && $db->transaction_opened > 0) {
+				$db->rollback();
+			}
+			return -2;
+		} catch (Throwable $e) {
+			while (property_exists($db, 'transaction_opened') && $db->transaction_opened > 0) {
+				$db->rollback();
+			}
+			dol_syslog('ServiceCard::payBillAmount failed: '.$e->getMessage(), LOG_ERR);
+			return -1;
+		}
+		return 1;
+	}
+
+	/**
+	 * Available prepaid VALUE balance of a patient across all valid VALUE
+	 * cards (grace-aware). Used by the charge UI to show the balance and to
+	 * default the card-deduction amount.
+	 *
+	 * @param	DoliDB	$db			Database handler
+	 * @param	int		$fkPatient	Patient profile rowid
+	 * @return	float				Sum of remaining VALUE balances
+	 */
+	public static function availableValue($db, $fkPatient)
+	{
+		$grace = (int) getDolGlobalInt('CLINICPAY_CARD_GRACE_DAYS');
+		$sql = "SELECT COALESCE(SUM(total_value - used_value), 0) AS avail";
+		$sql .= " FROM ".$db->prefix()."clinicpay_card";
+		$sql .= " WHERE fk_patient = ".((int) $fkPatient)." AND card_type = '".CLINICPAY_CARD_VALUE."' AND status = ".CLINICPAY_CARD_VALID;
+		$sql .= " AND (date_end IS NULL OR date_end >= DATE_SUB(CURDATE(), INTERVAL ".max(0, $grace)." DAY))";
+		$res = $db->query($sql);
+		if (!$res) {
+			return 0.0;
+		}
+		$o = $db->fetch_object($res);
+		$db->free($res);
+		return $o ? (float) $o->avail : 0.0;
+	}
+
+	/**
+	 * Reverse (re-credit) the card consumption linked to a charge bill:
+	 * find every positive CONSUME log with fk_bill = $billId, add its delta
+	 * back to the card's used_value, and append a negative CONSUME log so
+	 * the reconciliation formula (balance == income - SUM(CONSUME)) still
+	 * holds. Idempotent: a bill already reversed (negative CONSUME present)
+	 * is a no-op.
+	 *
+	 * @param	DoliDB	$db		Database handler
+	 * @param	User	$user	Acting user (validate permission)
+	 * @param	int		$billId	Charge bill rowid
+	 * @return	int			1 ok, -2 refused, -1 error
+	 */
+	public static function reverseBill($db, $user, $billId)
+	{
+		if ($billId <= 0) {
+			return -2;
+		}
+		$chk = $db->query("SELECT 1 FROM ".$db->prefix()."clinicpay_card_log WHERE fk_bill = ".((int) $billId)." AND op = '".CLINICPAY_LOG_CONSUME."' AND value_delta < 0 LIMIT 1");
+		if ($chk && $db->fetch_object($chk)) {
+			return 1; // already reversed
+		}
+		$res = $db->query("SELECT fk_card, value_delta FROM ".$db->prefix()."clinicpay_card_log WHERE fk_bill = ".((int) $billId)." AND op = '".CLINICPAY_LOG_CONSUME."' AND value_delta > 0");
+		if (!$res) {
+			return -1;
+		}
+		$rows = array();
+		while ($o = $db->fetch_object($res)) {
+			$rows[] = $o;
+		}
+		if (empty($rows)) {
+			return 1; // nothing to reverse
+		}
+		$db->begin();
+		try {
+			foreach ($rows as $o) {
+				$delta = price2num((float) $o->value_delta, 'MT');
+				$upd = "UPDATE ".$db->prefix()."clinicpay_card SET used_value = used_value - ".$delta;
+				$upd .= " WHERE rowid = ".((int) $o->fk_card)." AND used_value >= ".$delta;
+				$r = $db->query($upd);
+				if (!$r || $db->affected_rows($r) !== 1) {
+					throw new RuntimeException('card revert failed');
+				}
+				$ins = "INSERT INTO ".$db->prefix()."clinicpay_card_log";
+				$ins .= " (fk_card, op, count_delta, value_delta, fk_bill, fk_user, note, date_creation)";
+				$ins .= " VALUES (".((int) $o->fk_card).", '".CLINICPAY_LOG_CONSUME."', 0, -1 * ".$delta;
+				$ins .= ", ".((int) $billId).", ".((int) $user->id).", 'reverse', '".$db->idate(dol_now())."')";
+				if (!$db->query($ins)) {
+					throw new RuntimeException($db->lasterror());
+				}
+			}
+			$db->commit();
+		} catch (Throwable $e) {
+			while (property_exists($db, 'transaction_opened') && $db->transaction_opened > 0) {
+				$db->rollback();
+			}
+			dol_syslog('ServiceCard::reverseBill failed: '.$e->getMessage(), LOG_ERR);
+			return -1;
 		}
 		return 1;
 	}

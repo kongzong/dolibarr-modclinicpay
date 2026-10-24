@@ -65,10 +65,16 @@ class Paybill extends CommonObject
 	public $status = CLINICPAY_BILL_DRAFT;
 	/** @var float Snapshot total taken through calcul_price_total() */
 	public $amount_total;
-	/** @var string CASH / SCAN */
+	/** @var string CASH / SCAN / CARD */
 	public $channel;
 	/** @var string Scan reference */
 	public $channel_ref;
+	/** @var float Prepaid VALUE card portion of this charge (0 if no card used) */
+	public $card_amount = 0.0;
+	/** @var string Secondary channel for the cash/scan remainder of a mixed payment */
+	public $channel2 = '';
+	/** @var string Secondary channel reference */
+	public $channel2_ref = '';
 	/** @var string Tax invoice number written back from the tax system (not a tax integration) */
 	public $fapiao_no;
 	/** @var int|null */
@@ -116,7 +122,7 @@ class Paybill extends CommonObject
 	public function fetch($id)
 	{
 		$sql = "SELECT b.rowid, b.entity, b.ref, b.fk_patient, b.fk_medrecord, b.fk_invoice, b.status, b.amount_total,";
-		$sql .= " b.channel, b.channel_ref, b.fk_user_pay, b.date_pay, b.note, b.model_pdf, b.last_main_doc,";
+		$sql .= " b.channel, b.channel_ref, b.card_amount, b.channel2, b.channel2_ref, b.fk_user_pay, b.date_pay, b.note, b.model_pdf, b.last_main_doc,";
 		$sql .= " b.fk_user_creat, b.date_creation, b.fapiao_no";
 		$sql .= " FROM ".$this->db->prefix()."clinicpay_bill as b";
 		$sql .= " WHERE b.rowid = ".((int) $id);
@@ -140,6 +146,9 @@ class Paybill extends CommonObject
 		$this->amount_total = (float) $obj->amount_total;
 		$this->channel = $obj->channel;
 		$this->channel_ref = $obj->channel_ref;
+		$this->card_amount = (float) $obj->card_amount;
+		$this->channel2 = $obj->channel2;
+		$this->channel2_ref = (string) $obj->channel2_ref;
 		$this->fapiao_no = (string) $obj->fapiao_no;
 		$this->fk_user_pay = $obj->fk_user_pay !== null ? (int) $obj->fk_user_pay : null;
 		$this->date_pay = $obj->date_pay ? $this->db->jdate($obj->date_pay) : null;
@@ -436,7 +445,7 @@ class Paybill extends CommonObject
 	 * @param	string	$channelRef		Scan reference (required for SCAN)
 	 * @return	int						1 ok (idempotent included), -2 refused, -1 error
 	 */
-	public function confirm(User $user, $channel, $channelRef)
+	public function confirm(User $user, $channel, $channelRef, $cardAmount = null, $channel2 = null, $channel2Ref = null)
 	{
 		$this->error = '';
 		if ($this->id <= 0 || $this->fetch($this->id) <= 0) {
@@ -455,14 +464,47 @@ class Paybill extends CommonObject
 			return -2;
 		}
 		$channel = strtoupper((string) $channel);
-		if (!in_array($channel, array(CLINICPAY_CHANNEL_CASH, CLINICPAY_CHANNEL_SCAN), true)) {
-			$this->error = 'ClinicPayErrChannel';
-			return -2;
-		}
 		$channelRef = trim((string) $channelRef);
-		if ($channel === CLINICPAY_CHANNEL_SCAN && $channelRef === '') {
-			$this->error = 'ClinicPayErrRefRequired';
-			return -2;
+		$channel2 = $channel2 !== null ? strtoupper((string) $channel2) : '';
+		$channel2Ref = $channel2Ref !== null ? trim((string) $channel2Ref) : '';
+		// channel=CARD means the bill is (partly) settled by the patient's
+		// prepaid VALUE card; card_amount defaults to the full bill when
+		// omitted. Card portion is never invoiced (paid when the card sold).
+		$cardAmount = ($cardAmount === null) ? 0.0 : price2num((float) $cardAmount, 'MT');
+		$total = price2num((float) $this->amount_total, 'MT');
+		if ($channel === CLINICPAY_CHANNEL_CARD) {
+			if ($cardAmount <= 0) {
+				$cardAmount = $total;
+			}
+			if ($cardAmount > $total) {
+				$cardAmount = $total;
+			}
+			if ($cardAmount < $total) {
+				// mixed: the remainder must be collected via CASH/SCAN
+				if (!in_array($channel2, array(CLINICPAY_CHANNEL_CASH, CLINICPAY_CHANNEL_SCAN), true)) {
+					$this->error = 'ClinicPayErrChannel2';
+					return -2;
+				}
+				if ($channel2 === CLINICPAY_CHANNEL_SCAN && $channel2Ref === '') {
+					$this->error = 'ClinicPayErrRefRequired';
+					return -2;
+				}
+			} else {
+				$channel2 = '';
+				$channel2Ref = '';
+			}
+		} else {
+			if (!in_array($channel, array(CLINICPAY_CHANNEL_CASH, CLINICPAY_CHANNEL_SCAN), true)) {
+				$this->error = 'ClinicPayErrChannel';
+				return -2;
+			}
+			if ($channel === CLINICPAY_CHANNEL_SCAN && $channelRef === '') {
+				$this->error = 'ClinicPayErrRefRequired';
+				return -2;
+			}
+			$cardAmount = 0.0;
+			$channel2 = '';
+			$channel2Ref = '';
 		}
 
 		$this->db->begin();
@@ -477,6 +519,9 @@ class Paybill extends CommonObject
 			$sql = "UPDATE ".$this->db->prefix()."clinicpay_bill SET status = ".CLINICPAY_BILL_PAID;
 			$sql .= ", channel = '".$this->db->escape($channel)."'";
 			$sql .= ", channel_ref = '".$this->db->escape($channelRef)."'";
+			$sql .= ", card_amount = ".price2num($cardAmount, 'MT');
+			$sql .= ", channel2 = ".($channel2 !== '' ? "'".$this->db->escape($channel2)."'" : 'NULL');
+			$sql .= ", channel2_ref = ".($channel2Ref !== '' ? "'".$this->db->escape($channel2Ref)."'" : 'NULL');
 			$sql .= ", fk_user_pay = ".((int) $user->id).", date_pay = '".$this->db->idate(dol_now())."'";
 			$sql .= " WHERE rowid = ".((int) $this->id)." AND status = ".CLINICPAY_BILL_DRAFT;
 			$resql = $this->db->query($sql);
@@ -490,76 +535,127 @@ class Paybill extends CommonObject
 				return 1;
 			}
 
-			// Native invoice, same transaction (nested begin/commit are
-			// depth-counted by DoliDB; we commit/rollback at the top).
-			require_once DOL_DOCUMENT_ROOT.'/compta/facture/class/facture.class.php';
-			$facture = new Facture($this->db);
-			$facture->socid = $soc;
-			$facture->type = Facture::TYPE_STANDARD;
-			$facture->date = dol_now();
-			$facture->cond_reglement_id = $this->defaultPaymentTermId();
-			$facture->mode_reglement_id = $this->paymentModeId($channel);
-			$facture->note_public = 'ClinicPay bill '.$this->ref;
-			$facture->lines = array();
-			foreach ($this->lines as $l) {
-				$facture->lines[] = array(
-					'desc' => $l['label'],
-					'subprice' => price2num($l['price_unit'], 'MU'),
-					'qty' => price2num($l['qty'], 'MS'),
-					'tva_tx' => (float) $l['vat_rate'],
-					'localtax1_tx' => 0,
-					'localtax2_tx' => 0,
-					'fk_product' => $l['fk_product'] !== null ? (int) $l['fk_product'] : 0,
-					'remise_percent' => 0,
-					'price_base_type' => 'HT',
-					'info_bits' => 0,
-					'fk_remise_except' => 0,
-					'fk_code_ventilation' => 0,
-					'fk_parent_line' => 0,
-					'special_code' => 0,
-					'product_type' => $l['product_type'],
-					'fk_unit' => null,
-					'date_start' => null,
-					'date_end' => null,
-					'ventilation' => 0,
-					'subprice_remise' => 0,
-					'vat_src_code' => '',
-					'ref_ext' => '',
-					'origin_id' => null,
-					'origin_type' => null,
-				);
-			}
-			$invoiceId = $facture->create($user);
-			if ($invoiceId <= 0) {
-				throw new RuntimeException('invoice create failed: '.($facture->error !== '' ? $facture->error : $this->db->lasterror()));
-			}
-			if ($facture->validate($user) <= 0) {
-				throw new RuntimeException('invoice validate failed: '.($facture->error !== '' ? $facture->error : $this->db->lasterror()));
-			}
-
-			// Payment registration (native, closes the invoice).
-			require_once DOL_DOCUMENT_ROOT.'/compta/paiement/class/paiement.class.php';
-			$paiement = new Paiement($this->db);
-			$paiement->datepaye = dol_now();
-			$paiement->amounts = array((int) $facture->id => price2num($facture->total_ttc, 'MT'));
-			$paiement->paiementcode = clinicpay_paiement_code($channel);
-			$paiement->num_payment = $channelRef !== '' ? $channelRef : $this->ref;
-			$paiement->note_public = 'ClinicPay bill '.$this->ref;
-			$payId = $paiement->create($user, 1);
-			if ($payId < 0) {
-				throw new RuntimeException('payment create failed: '.($paiement->error !== '' ? $paiement->error : $this->db->lasterror()));
-			}
-			$bankAccount = (int) getDolGlobalInt('CLINICPAY_BANK_ACCOUNT');
-			if ($bankAccount > 0) {
-				$bankRes = $paiement->addPaymentToBank($user, 'payment', '(InvoicePayment)', $bankAccount, '', '');
-				if ($bankRes < 0) {
-					throw new RuntimeException('bank write failed: '.($paiement->error !== '' ? $paiement->error : $this->db->lasterror()));
+			// ---- Card portion: deduct from the patient's VALUE cards ----
+			$cardPay = price2num((float) $cardAmount, 'MT');
+			if ($cardPay > 0.005) {
+				dol_include_once('/clinicpay/class/servicecard.class.php');
+				$rc = ServiceCard::payBillAmount($this->db, $user, $this->fk_patient, $cardPay, $this->id, 'charge bill '.$this->ref);
+				if ($rc < 0) {
+					$this->error = 'ClinicPayErrCardShortage';
+					throw new ClinicPayRefusedException($this->error);
 				}
 			}
 
-			$sql = "UPDATE ".$this->db->prefix()."clinicpay_bill SET fk_invoice = ".((int) $facture->id)." WHERE rowid = ".((int) $this->id);
-			$this->query($sql);
-			patient_audit($this->db, $this->fk_patient, 'CLINICPAY_BILL', $user, array('op' => 'confirm', 'ref' => $this->ref, 'bill' => $this->id, 'invoice' => (int) $facture->id, 'amount' => (float) $facture->total_ttc, 'channel' => $channel));
+			// ---- Cash/scan remainder: native invoice + payment ----
+			// A fully-card bill skips the invoice entirely (the card was paid
+			// for when it was sold) -> no double-counting, no bank write.
+			$remainder = price2num((float) $this->amount_total - $cardPay, 'MT');
+			if ($remainder > 0.005) {
+				require_once DOL_DOCUMENT_ROOT.'/compta/facture/class/facture.class.php';
+				$facture = new Facture($this->db);
+				$facture->socid = $soc;
+				$facture->type = Facture::TYPE_STANDARD;
+				$facture->date = dol_now();
+				$facture->cond_reglement_id = $this->defaultPaymentTermId();
+				$payChannel = $channel2 !== '' ? $channel2 : $channel;
+				$facture->mode_reglement_id = $this->paymentModeId($payChannel);
+				$facture->note_public = 'ClinicPay bill '.$this->ref;
+				$facture->lines = array();
+				if ($cardPay > 0.005) {
+					// mixed: one flat line for the cash remainder
+					$vatRate = (float) (isset($this->lines[0]) ? $this->lines[0]['vat_rate'] : 0);
+					$ht = price2num($remainder / (1 + $vatRate / 100), 'MU');
+					$facture->lines[] = array(
+						'desc' => 'ClinicPay remainder (card '.$cardPay.')',
+						'subprice' => $ht,
+						'qty' => 1,
+						'tva_tx' => $vatRate,
+						'localtax1_tx' => 0,
+						'localtax2_tx' => 0,
+						'fk_product' => 0,
+						'remise_percent' => 0,
+						'price_base_type' => 'HT',
+						'info_bits' => 0,
+						'fk_remise_except' => 0,
+						'fk_code_ventilation' => 0,
+						'fk_parent_line' => 0,
+						'special_code' => 0,
+						'product_type' => 1,
+						'fk_unit' => null,
+						'date_start' => null,
+						'date_end' => null,
+						'ventilation' => 0,
+						'subprice_remise' => 0,
+						'vat_src_code' => '',
+						'ref_ext' => '',
+						'origin_id' => null,
+						'origin_type' => null,
+					);
+				} else {
+					foreach ($this->lines as $l) {
+						$facture->lines[] = array(
+							'desc' => $l['label'],
+							'subprice' => price2num($l['price_unit'], 'MU'),
+							'qty' => price2num($l['qty'], 'MS'),
+							'tva_tx' => (float) $l['vat_rate'],
+							'localtax1_tx' => 0,
+							'localtax2_tx' => 0,
+							'fk_product' => $l['fk_product'] !== null ? (int) $l['fk_product'] : 0,
+							'remise_percent' => 0,
+							'price_base_type' => 'HT',
+							'info_bits' => 0,
+							'fk_remise_except' => 0,
+							'fk_code_ventilation' => 0,
+							'fk_parent_line' => 0,
+							'special_code' => 0,
+							'product_type' => $l['product_type'],
+							'fk_unit' => null,
+							'date_start' => null,
+							'date_end' => null,
+							'ventilation' => 0,
+							'subprice_remise' => 0,
+							'vat_src_code' => '',
+							'ref_ext' => '',
+							'origin_id' => null,
+							'origin_type' => null,
+						);
+					}
+				}
+				$invoiceId = $facture->create($user);
+				if ($invoiceId <= 0) {
+					throw new RuntimeException('invoice create failed: '.($facture->error !== '' ? $facture->error : $this->db->lasterror()));
+				}
+				if ($facture->validate($user) <= 0) {
+					throw new RuntimeException('invoice validate failed: '.($facture->error !== '' ? $facture->error : $this->db->lasterror()));
+				}
+
+				require_once DOL_DOCUMENT_ROOT.'/compta/paiement/class/paiement.class.php';
+				$paiement = new Paiement($this->db);
+				$paiement->datepaye = dol_now();
+				$paiement->amounts = array((int) $facture->id => price2num($facture->total_ttc, 'MT'));
+				$paiement->paiementcode = clinicpay_paiement_code($payChannel);
+				$payRef = $channel2 !== '' ? $channel2Ref : $channelRef;
+				$paiement->num_payment = $payRef !== '' ? $payRef : $this->ref;
+				$paiement->note_public = 'ClinicPay bill '.$this->ref;
+				$payId = $paiement->create($user, 1);
+				if ($payId < 0) {
+					throw new RuntimeException('payment create failed: '.($paiement->error !== '' ? $paiement->error : $this->db->lasterror()));
+				}
+				$bankAccount = (int) getDolGlobalInt('CLINICPAY_BANK_ACCOUNT');
+				if ($bankAccount > 0) {
+					$bankRes = $paiement->addPaymentToBank($user, 'payment', '(InvoicePayment)', $bankAccount, '', '');
+					if ($bankRes < 0) {
+						throw new RuntimeException('bank write failed: '.($paiement->error !== '' ? $paiement->error : $this->db->lasterror()));
+					}
+				}
+
+				$sql = "UPDATE ".$this->db->prefix()."clinicpay_bill SET fk_invoice = ".((int) $facture->id)." WHERE rowid = ".((int) $this->id);
+				$this->query($sql);
+				patient_audit($this->db, $this->fk_patient, 'CLINICPAY_BILL', $user, array('op' => 'confirm', 'ref' => $this->ref, 'bill' => $this->id, 'invoice' => (int) $facture->id, 'amount' => (float) $facture->total_ttc, 'channel' => $channel, 'card_amount' => $cardPay, 'channel2' => $channel2));
+			} else {
+				// Fully settled by card: no invoice, no payment.
+				patient_audit($this->db, $this->fk_patient, 'CLINICPAY_BILL', $user, array('op' => 'confirm', 'ref' => $this->ref, 'bill' => $this->id, 'invoice' => 0, 'amount' => 0, 'channel' => $channel, 'card_amount' => $cardPay, 'channel2' => ''));
+			}
 			$this->db->commit();
 		} catch (ClinicPayRefusedException $e) {
 			$this->rollbackAll();
@@ -571,9 +667,12 @@ class Paybill extends CommonObject
 			return -1;
 		}
 		$this->status = CLINICPAY_BILL_PAID;
-		$this->fk_invoice = (int) $facture->id;
+		$this->fk_invoice = (isset($facture) && $facture instanceof Facture) ? (int) $facture->id : 0;
 		$this->channel = $channel;
 		$this->channel_ref = $channelRef;
+		$this->card_amount = price2num((float) $cardAmount, 'MT');
+		$this->channel2 = $channel2;
+		$this->channel2_ref = $channel2Ref;
 		$this->date_pay = dol_now();
 		$this->fk_user_pay = (int) $user->id;
 
@@ -634,6 +733,11 @@ class Paybill extends CommonObject
 				throw new ClinicPayRefusedException($this->error);
 			}
 			$credited = $this->creditedTotal((int) $this->fk_invoice);
+			// Mixed (card + cash) bills: by default refund only the cash
+			// remainder; the card part is reversed separately in executeRefund.
+			if ($amountTtc <= 0 && price2num((float) $this->card_amount, 'MT') > 0.005) {
+				$amountTtc = price2num((float) $this->amount_total - (float) $this->card_amount, 'MT');
+			}
 			$partial = ($amountTtc > 0);
 			$amountTtc = $partial ? price2num((float) $amountTtc, 'MT') : 0.0;
 			if ($partial && $credited + $amountTtc > (float) $orig->total_ttc + 0.005) {
@@ -814,6 +918,17 @@ class Paybill extends CommonObject
 				}
 			}
 
+			// Reverse the card consumption if this bill was (partly) paid by
+			// card. The two-person gate above already passed, so this re-
+			// credits the patient's prepaid balance inside the same transaction.
+			if (price2num((float) $this->card_amount, 'MT') > 0.005) {
+				dol_include_once('/clinicpay/class/servicecard.class.php');
+				$rc = ServiceCard::reverseBill($this->db, $user, $this->id);
+				if ($rc < 0) {
+					throw new RuntimeException('card reverse failed: '.$this->error);
+				}
+			}
+
 			// V0.2: flip the bill to refunded only when credit notes now cover
 			// the full invoice (card refunds credit a partial remaining
 			// balance; the bill itself stays paid).
@@ -839,6 +954,55 @@ class Paybill extends CommonObject
 			$this->rollbackAll();
 			$this->error = $e->getMessage();
 			dol_syslog('Paybill::executeRefund failed: '.$e->getMessage(), LOG_ERR);
+			return -1;
+		}
+		$this->status = CLINICPAY_BILL_REFUNDED;
+		return 1;
+	}
+
+	/**
+	 * Refund a fully-card-settled bill: re-credit the patient's prepaid
+	 * balance (reverse the card consumption) and mark the bill refunded.
+	 * No native credit note is created because no invoice was issued for the
+	 * card portion. Requires validate permission (two-person spirit);
+	 * idempotent.
+	 *
+	 * @param	User	$user	Acting user (validate permission)
+	 * @return	int			1 ok, -2 refused, -1 error
+	 */
+	public function refundCard(User $user)
+	{
+		$this->error = '';
+		if ($this->id <= 0 || $this->fetch($this->id) <= 0) {
+			$this->error = 'ClinicPayErrNotPaid';
+			return -2;
+		}
+		if ((int) $this->status === CLINICPAY_BILL_REFUNDED) {
+			return 1; // idempotent
+		}
+		if ((int) $this->status !== CLINICPAY_BILL_PAID || price2num((float) $this->card_amount, 'MT') <= 0.005) {
+			$this->error = 'ClinicPayErrNotCard';
+			return -2;
+		}
+		dol_include_once('/clinicpay/class/servicecard.class.php');
+		$this->db->begin();
+		try {
+			$rc = ServiceCard::reverseBill($this->db, $user, $this->id);
+			if ($rc < 0) {
+				throw new RuntimeException('card reverse failed');
+			}
+			$sql = "UPDATE ".$this->db->prefix()."clinicpay_bill SET status = ".CLINICPAY_BILL_REFUNDED;
+			$sql .= " WHERE rowid = ".((int) $this->id)." AND status = ".CLINICPAY_BILL_PAID;
+			$resql = $this->db->query($sql);
+			if (!$resql || $this->db->affected_rows($resql) !== 1) {
+				throw new RuntimeException('bill refund update failed');
+			}
+			patient_audit($this->db, $this->fk_patient, 'CLINICPAY_REFUND', $user, array('op' => 'card_reverse', 'ref' => $this->ref, 'bill' => $this->id, 'card_amount' => price2num((float) $this->card_amount, 'MT')));
+			$this->db->commit();
+		} catch (Throwable $e) {
+			$this->rollbackAll();
+			$this->error = $e->getMessage();
+			dol_syslog('Paybill::refundCard failed: '.$e->getMessage(), LOG_ERR);
 			return -1;
 		}
 		$this->status = CLINICPAY_BILL_REFUNDED;

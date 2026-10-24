@@ -41,6 +41,7 @@ require_once DOL_DOCUMENT_ROOT.'/core/class/html.form.class.php';
 dol_include_once('/patient/lib/patient.lib.php');
 dol_include_once('/clinicpay/lib/clinicpay.lib.php');
 dol_include_once('/clinicpay/class/paybill.class.php');
+dol_include_once('/clinicpay/class/servicecard.class.php');
 dol_include_once('/pharmacy/class/dispense.class.php');
 dol_include_once('/clinicpay/class/bundle.class.php');
 dol_include_once('/prescription/class/prescriptionsheet.class.php');
@@ -357,7 +358,10 @@ if ($action == 'confirm' && $id > 0 && $token != '') {
 	}
 	$channel = GETPOST('channel', 'alpha');
 	$channelRef = (string) GETPOST('channel_ref', 'alpha');
-	$result = $dao->confirm($user, $channel, $channelRef);
+	$cardAmount = GETPOST('card_amount', 'alpha');
+	$channel2 = GETPOST('channel2', 'alpha');
+	$channel2Ref = (string) GETPOST('channel2_ref', 'alpha');
+	$result = $dao->confirm($user, $channel, $channelRef, $cardAmount === '' ? null : $cardAmount, $channel2, $channel2Ref);
 	if ($result > 0) {
 		setEventMessages($langs->trans("ClinicPayBillConfirmed").' '.$dao->ref, null, 'mesgs');
 	} else {
@@ -391,6 +395,24 @@ if ($action == 'confirm_refund' && $confirm == 'yes' && $id > 0 && $token != '')
 	$result = $dao->executeRefund($user);
 	if ($result > 0) {
 		setEventMessages($langs->trans("ClinicPayRefundDone").' '.$dao->ref, null, 'mesgs');
+	} else {
+		clinicpay_redirect_error($dao->error, $_SERVER["PHP_SELF"].'?id='.$id);
+	}
+	header('Location: '.$_SERVER["PHP_SELF"].'?id='.$id);
+	exit;
+}
+
+// ------------------------------------------------------------ refund: fully-card bill (validate)
+// A bill settled entirely by prepaid card has no native invoice, so the
+// normal credit-note refund does not apply: re-credit the card balance and
+// mark the bill refunded.
+if ($action == 'refund_card' && $confirm == 'yes' && $id > 0 && $token != '') {
+	if (!$user->hasRight('clinicpay', 'validate')) {
+		accessforbidden();
+	}
+	$result = $dao->refundCard($user);
+	if ($result > 0) {
+		setEventMessages($langs->trans("ClinicPayRefundCardDone").' '.$dao->ref, null, 'mesgs');
 	} else {
 		clinicpay_redirect_error($dao->error, $_SERVER["PHP_SELF"].'?id='.$id);
 	}
@@ -447,6 +469,20 @@ if ($dao->channel_ref !== '') {
 }
 print '</td>';
 print '<td>'.$langs->trans("ClinicPayBillPayDate").'</td><td>'.($dao->date_pay ? dol_print_date($dao->date_pay, '%Y-%m-%d %H:%M') : '').'</td></tr>';
+if (price2num((float) $dao->card_amount, 'MT') > 0.005) {
+	print '<tr><td>'.$langs->trans("ClinicPayBillCardAmount").'</td><td colspan="3">'.price($dao->card_amount);
+	if ((int) $dao->fk_invoice <= 0) {
+		print ' <span class="opacitymedium">('.$langs->trans("ClinicPayBillCardOnly").')</span>';
+	}
+	print '</td></tr>';
+	if ($dao->channel2 !== '') {
+		print '<tr><td>'.$langs->trans("ClinicPayBillChannel2").'</td><td colspan="3">'.dol_escape_htmltag(clinicpay_channel_label($dao->channel2));
+		if ($dao->channel2_ref !== '') {
+			print ' <span class="opacitymedium">('.dol_escape_htmltag($dao->channel2_ref).')</span>';
+		}
+		print '</td></tr>';
+	}
+}
 print '<tr><td>'.$langs->trans("ClinicPayInvoice").'</td><td>';
 if ((int) $dao->fk_invoice > 0) {
 	print '<a href="'.DOL_URL_ROOT.'/compta/facture/card.php?id='.((int) $dao->fk_invoice).'">'.dol_escape_htmltag($langs->trans("Invoice").' #'.(int) $dao->fk_invoice).'</a>';
@@ -505,8 +541,13 @@ if (!$isDraft && $user->hasRight('clinicpay', 'write')) {
 	print '<button type="submit" class="butAction smallpaddingimp">'.$langs->trans("ClinicPayFapiaoSave").'</button>';
 	print '</form>';
 }
-if ($isPaid && $user->hasRight('clinicpay', 'write')) {
-	print dolGetButtonAction($langs->trans("ClinicPayRefundStart"), '', 'delete', $_SERVER["PHP_SELF"].'?id='.$dao->id.'&action=refund&token='.newToken(), '', 1);
+$isFullyCard = (price2num((float) $dao->card_amount, 'MT') > 0.005 && (int) $dao->fk_invoice <= 0);
+if ($isPaid) {
+	if ($isFullyCard && $user->hasRight('clinicpay', 'validate')) {
+		print dolGetButtonAction($langs->trans("ClinicPayRefundCard"), '', 'delete', $_SERVER["PHP_SELF"].'?id='.$dao->id.'&action=refund_card&token='.newToken(), '', 1);
+	} elseif (!$isFullyCard && $user->hasRight('clinicpay', 'write')) {
+		print dolGetButtonAction($langs->trans("ClinicPayRefundStart"), '', 'delete', $_SERVER["PHP_SELF"].'?id='.$dao->id.'&action=refund&token='.newToken(), '', 1);
+	}
 }
 if ($isPaid) {
 	$draftId = $dao->findRefundDraft();
@@ -522,31 +563,91 @@ print '</div>';
 
 // Inline confirm-charge form (draft, pay permission)
 if ($isDraft && $user->hasRight('clinicpay', 'pay')) {
+	$cardBalance = ServiceCard::availableValue($db, $dao->fk_patient);
+	$cardBalance = price2num($cardBalance, 'MT');
+	$cardMax = price2num(min((float) $dao->amount_total, $cardBalance), 'MT');
+	$cardDisabled = $cardBalance <= 0.005;
 	print load_fiche_titre($langs->trans("ClinicPayBillConfirmTitle"), '', 'fa-money-check-alt');
-	print '<form method="POST" action="'.$_SERVER["PHP_SELF"].'">';
+	print '<form method="POST" action="'.$_SERVER["PHP_SELF"].'" id="bill_confirm_form">';
 	print '<input type="hidden" name="token" value="'.newToken().'">';
 	print '<input type="hidden" name="action" value="confirm">';
 	print '<input type="hidden" name="id" value="'.((int) $dao->id).'">';
 	print '<table class="border centpercent tableforfield">';
 	print '<tr><td class="titlefield fieldrequired">'.$langs->trans("ClinicPayBillChannel").'</td><td>';
-	print '<select class="flat" name="channel">';
+	print '<select class="flat" name="channel" id="bill_channel">';
+	print '<option value="CASH">'.dol_escape_htmltag(clinicpay_channel_label(CLINICPAY_CHANNEL_CASH)).'</option>';
+	print '<option value="SCAN">'.dol_escape_htmltag(clinicpay_channel_label(CLINICPAY_CHANNEL_SCAN)).'</option>';
+	print '<option value="CARD">'.dol_escape_htmltag(clinicpay_channel_label(CLINICPAY_CHANNEL_CARD)).'</option>';
+	print '</select></td></tr>';
+	print '<tr id="row_channel_ref"><td>'.$langs->trans("ClinicPayBillChannelRef").'</td><td><input class="flat minwidth200" type="text" name="channel_ref" value=""> <span class="opacitymedium">'.$langs->trans("ClinicPayChannelRefHint").'</span></td></tr>';
+
+	// Card block (shown only when channel = CARD)
+	print '<tr class="cardrow" style="display:none"><td>'.$langs->trans("ClinicPayCardPayBalance", price($cardBalance)).'</td><td>';
+	if ($cardDisabled) {
+		print '<span class="opacitymedium">'.$langs->trans("ClinicPayCardPayHint").'</span>';
+	} else {
+		print '<span class="opacitymedium">'.dol_escape_htmltag($langs->trans("ClinicPayCardPayHint")).'</span>';
+	}
+	print '</td></tr>';
+	print '<tr class="cardrow" style="display:none"><td class="fieldrequired">'.$langs->trans("ClinicPayBillCardAmount").'</td><td><input class="flat" type="text" name="card_amount" id="bill_card_amount" value="'.$cardMax.'"'.($cardDisabled ? ' disabled' : '').'> <span class="opacitymedium">'.dol_escape_htmltag($langs->trans("ClinicPayBillAmount").' '.price($dao->amount_total)).'</span></td></tr>';
+
+	// Secondary channel (shown when card portion < total)
+	print '<tr class="c2row" style="display:none"><td class="fieldrequired">'.$langs->trans("ClinicPayBillChannel2").'</td><td>';
+	print '<select class="flat" name="channel2" id="bill_channel2">';
+	print '<option value="">-</option>';
 	print '<option value="CASH">'.dol_escape_htmltag(clinicpay_channel_label(CLINICPAY_CHANNEL_CASH)).'</option>';
 	print '<option value="SCAN">'.dol_escape_htmltag(clinicpay_channel_label(CLINICPAY_CHANNEL_SCAN)).'</option>';
 	print '</select></td></tr>';
-	print '<tr><td>'.$langs->trans("ClinicPayBillChannelRef").'</td><td><input class="flat minwidth200" type="text" name="channel_ref" value=""> <span class="opacitymedium">'.$langs->trans("ClinicPayChannelRefHint").'</span></td></tr>';
+	print '<tr class="c2row" style="display:none" id="row_channel2_ref"><td>'.$langs->trans("ClinicPayBillChannelRef").'</td><td><input class="flat minwidth200" type="text" name="channel2_ref" value=""> <span class="opacitymedium">'.$langs->trans("ClinicPayChannelRefHint").'</span></td></tr>';
+
 	print '</table>';
 	print '<div class="center paddingtop"><input type="submit" class="button" value="'.dol_escape_htmltag($langs->trans("ClinicPayBillConfirmTitle")).'"></div>';
 	print '</form>';
+	print '<script type="text/javascript">
+$(function() {
+	var total = '.price2num((float) $dao->amount_total, 'MT').';
+	var balance = '.$cardBalance.';
+	function clinicpayRefreshConfirm() {
+		var ch = $("#bill_channel").val();
+		var isCard = (ch === "CARD");
+		$("#row_channel_ref").toggle(!isCard);
+		$(".cardrow").toggle(isCard);
+		if (!isCard) { $(".c2row").hide(); return; }
+		var ca = parseFloat($("#bill_card_amount").val()) || 0;
+		var remainder = total - ca;
+		$(".c2row").toggle(remainder > 0.005);
+	}
+	$("#bill_channel").on("change", clinicpayRefreshConfirm);
+	$("#bill_card_amount").on("keyup change", clinicpayRefreshConfirm);
+	$("#bill_confirm_form").on("submit", function() {
+		var ch = $("#bill_channel").val();
+		if (ch !== "CARD") { return true; }
+		var ca = parseFloat($("#bill_card_amount").val()) || 0;
+		if (ca <= 0 || ca > balance + 0.005) { alert("'.dol_escape_js($langs->trans("ClinicPayCardPayShortage")).'"); return false; }
+		var remainder = total - ca;
+		if (remainder > 0.005) {
+			var c2 = $("#bill_channel2").val();
+			if (c2 === "") { alert("'.dol_escape_js($langs->trans("ClinicPayErrChannel2")).'"); return false; }
+			if (c2 === "SCAN" && $.trim($("#bill_channel2_ref").val()) === "") { alert("'.dol_escape_js($langs->trans("ClinicPayErrRefRequired")).'"); return false; }
+		}
+		return true;
+	});
+	clinicpayRefreshConfirm();
+});
+</script>';
 }
 
 // Refund forms (reason input for step 1; formconfirm for step 2)
-if ($action == 'refund' && $isPaid && ($user->hasRight('clinicpay', 'write') || $user->hasRight('clinicpay', 'validate'))) {
+if ($action == 'refund' && $isPaid && !$isFullyCard && ($user->hasRight('clinicpay', 'write') || $user->hasRight('clinicpay', 'validate'))) {
 	$draftId = $dao->findRefundDraft();
 	if ($draftId <= 0 && $user->hasRight('clinicpay', 'write')) {
 		print $form->formconfirm($_SERVER["PHP_SELF"].'?id='.$dao->id, $langs->trans("ClinicPayRefundStart"), $langs->trans("ClinicPayRefundReasonAsk"), 'refund_draft', array(array('type' => 'text', 'name' => 'refund_reason', 'label' => $langs->trans("ClinicPayRefundReason"), 'value' => '', 'size' => 60)), 0, 1);
 	} elseif ($draftId > 0 && $user->hasRight('clinicpay', 'validate')) {
 		print $form->formconfirm($_SERVER["PHP_SELF"].'?id='.$dao->id, $langs->trans("ClinicPayRefundExecute"), $langs->trans("ClinicPayRefundConfirmAsk"), 'confirm_refund', array(), 0, 1);
 	}
+}
+if ($action == 'refund_card' && $isPaid && $isFullyCard && $user->hasRight('clinicpay', 'validate')) {
+	print $form->formconfirm($_SERVER["PHP_SELF"].'?id='.$dao->id, $langs->trans("ClinicPayRefundCard"), $langs->trans("ClinicPayRefundCardConfirmAsk", price($dao->card_amount)), 'refund_card', array(), 0, 1);
 }
 
 llxFooter();
